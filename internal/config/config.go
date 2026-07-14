@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
@@ -46,6 +47,10 @@ func Hostname() string {
 // falling back to an error — mDNS only succeeds when on the coordinator's
 // LAN, so this should stay short.
 const mdnsDiscoverTimeout = 3 * time.Second
+
+// reachTimeout bounds the TCP probe used to pick between a discovered
+// coordinator's Tailscale vs LAN address.
+const reachTimeout = 1 * time.Second
 
 // userConfig is the cached coordinator address, written once discovery (or
 // an explicit -coordinator) succeeds so future runs don't need either.
@@ -92,10 +97,13 @@ func SetCoordinatorAddr(addr string) error {
 
 // ResolveCoordinatorAddr finds the coordinator's host:port without the
 // caller having to pass -coordinator every time. Priority: explicit flag >
-// PODSWITCH_COORDINATOR env > cached config file > mDNS (LAN-only, ~3s). A
-// successful mDNS discovery is cached to the config file so subsequent
-// calls (including once you've roamed off the LAN) skip straight to the
-// cache.
+// PODSWITCH_COORDINATOR env > cached config file > mDNS (LAN-only, ~3s). On
+// mDNS, both the coordinator's Tailscale and LAN addresses are probed for
+// reachability — a host that's also on the tailnet prefers the Tailscale
+// address (stable across roaming); a LAN-only host (never joined the
+// tailnet) falls back to the LAN address mDNS itself resolved. Whichever
+// address actually connects is cached, so subsequent calls skip discovery
+// entirely.
 func ResolveCoordinatorAddr(explicit string) (string, error) {
 	if explicit != "" {
 		return explicit, nil
@@ -107,13 +115,36 @@ func ResolveCoordinatorAddr(explicit string) (string, error) {
 		return uc.CoordinatorAddr, nil
 	}
 
-	addr, err := discovery.Discover(context.Background(), mdnsDiscoverTimeout)
+	found, err := discovery.Discover(context.Background(), mdnsDiscoverTimeout)
 	if err != nil {
 		return "", fmt.Errorf(
 			"no coordinator configured: %w (pass -coordinator, set PODSWITCH_COORDINATOR, or run 'podswitchd config coordinator <host:port>')", err)
+	}
+
+	addr, err := pickReachable(found)
+	if err != nil {
+		return "", fmt.Errorf("found coordinator via mDNS but couldn't reach it at %s (tailscale) or %s (LAN): %w",
+			found.TailscaleAddr, found.LANAddr, err)
 	}
 	if serr := saveUserConfig(userConfig{CoordinatorAddr: addr}); serr != nil {
 		log.Printf("config: found coordinator at %s via mDNS but failed to cache it: %v", addr, serr)
 	}
 	return addr, nil
+}
+
+// pickReachable tries the Tailscale address first (stable once you roam),
+// then falls back to the LAN address (works for hosts never on the
+// tailnet, like a LAN-only Pi).
+func pickReachable(found discovery.Found) (string, error) {
+	for _, addr := range []string{found.TailscaleAddr, found.LANAddr} {
+		if addr == "" {
+			continue
+		}
+		conn, err := net.DialTimeout("tcp", addr, reachTimeout)
+		if err == nil {
+			conn.Close()
+			return addr, nil
+		}
+	}
+	return "", fmt.Errorf("neither address accepted a connection")
 }
