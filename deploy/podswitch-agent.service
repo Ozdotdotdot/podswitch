@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=%h/.config/podswitch/agent.env
-ExecStart=%h/.local/bin/podswitchd -mode agent -coordinator ${COORDINATOR} -host ${HOST}
+ExecStart=%h/.local/bin/podswitchd -mode agent -host ${HOST}
 Restart=always
 RestartSec=3
 

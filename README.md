@@ -16,16 +16,17 @@ podswitch here            # move AirPods to this host
 Install the coordinator on one always-on Linux machine, then install an agent on every machine that can use the headphones. The installer downloads a prebuilt release archive for the host architecture. It supports `amd64` and `arm64`, including Raspberry Pi 3 class machines.
 
 ```sh
-# Coordinator
+# Interactive setup. Choose coordinator or agent, then select a paired
+# Bluetooth device. AirPods appear first when present.
 curl -fsSL https://github.com/Ozdotdotdot/podswitch/releases/latest/download/install.sh \
-  | bash -s -- coordinator
+  | bash
 
-# Agent
+# Fully non-interactive agent setup also works.
 curl -fsSL https://github.com/Ozdotdotdot/podswitch/releases/latest/download/install.sh \
   | bash -s -- agent coordinator-host:8090 AA:BB:CC:DD:EE:FF
 ```
 
-The installer writes a systemd user service and starts it. Agents can discover a coordinator over mDNS on the local network, but pinning `coordinator-host:8090` is more predictable.
+The installer writes a systemd user service and starts it. Leave the coordinator address blank during interactive agent setup to use LAN mDNS discovery, or enter an address to pin it.
 
 For development, build locally instead:
 
