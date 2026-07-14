@@ -19,7 +19,11 @@ import (
 )
 
 func main() {
-	if len(os.Args) == 1 || (len(os.Args) > 1 && os.Args[1] == "tui") {
+	if len(os.Args) == 1 {
+		cliTUI(nil)
+		return
+	}
+	if os.Args[1] == "tui" {
 		cliTUI(os.Args[2:])
 		return
 	}
