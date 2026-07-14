@@ -17,11 +17,24 @@ socket just means that host can't be holding the buds.
 ## CLI
 
 ```
-podswitchd here  -coordinator <ts-name>:8090          # grab the AirPods onto this host
-podswitchd state -coordinator <ts-name>:8090           # who's online / who's holding them
+podswitchd here    # grab the AirPods onto this host
+podswitchd state   # who's online / who's holding them
 ```
 
-Or set `PODSWITCH_COORDINATOR=<ts-name>:8090` once and drop the flag.
+No `-coordinator` needed most of the time. It's resolved in order:
+
+1. `-coordinator <host:port>` flag (one-off override)
+2. `PODSWITCH_COORDINATOR` env var
+3. cached `~/.config/podswitch/config.toml`
+4. mDNS (`_podswitch._tcp`, LAN-only, ~3s) — the coordinator advertises its
+   Tailscale address, so once discovered on the home LAN the cached copy
+   keeps working when you're away too
+
+Define it once explicitly instead of waiting on mDNS:
+
+```
+podswitchd config coordinator 100.64.0.1:8090
+```
 
 ## Build
 
