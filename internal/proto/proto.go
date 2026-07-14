@@ -16,6 +16,7 @@ const (
 const (
 	ActionDisconnect = "disconnect"
 	ActionConnect    = "connect" // connect + route audio locally
+	ActionToggle     = "toggle"  // toggle local MPD playback
 )
 
 // Envelope is the single message shape on the wire; only the fields
@@ -28,8 +29,9 @@ type Envelope struct {
 	Version string `json:"version,omitempty"`
 
 	// state (agent -> coordinator): live BlueZ Connected property for the
-	// AirPods device on this host.
+	// AirPods device on this host, and optional local MPD playback state.
 	Connected *bool `json:"connected,omitempty"`
+	Playing   *bool `json:"playing,omitempty"`
 
 	// command (coordinator -> agent)
 	ReqID  string `json:"reqId,omitempty"`

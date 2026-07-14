@@ -5,7 +5,7 @@ Move AirPods Max between Linux machines. A coordinator orchestrates the handoff,
 Run `podswitch` with no arguments for the interactive picker. It receives an initial state snapshot and every later change through one persistent WebSocket connection. There is no UI polling.
 
 ```sh
-podswitch                 # interactive picker
+podswitch                 # interactive picker (p toggles selected host's MPD)
 podswitch status          # script-friendly human status
 podswitch status --json   # raw coordinator snapshot
 podswitch here            # move AirPods to this host
@@ -55,4 +55,6 @@ Upload `dist/podswitch_linux_amd64.tar.gz`, `dist/podswitch_linux_arm64.tar.gz`,
 - `podswitchd` is the daemon. Run it as either a coordinator or agent.
 - `podswitch` is the CLI and Bubble Tea client.
 - Agents keep an outbound WebSocket to the coordinator. This works for roaming and sleeping laptops without inbound connections.
-- The coordinator exposes `GET /api/state`, `POST /api/grab`, and `GET /ws/watch`.
+- The coordinator exposes `GET /api/state`, `POST /api/grab`, `POST /api/toggle`, and `GET /ws/watch`.
+- In the interactive picker, `p` toggles MPD playback on the selected online agent. A small note-and-sparkle mark appears beside hosts currently reporting MPD playback. The agent watches MPD with `mpc idle player`, rather than polling it.
+- Playback control is optional. It needs the standard `mpc` command configured to reach MPD on that agent; without it, switching the headphones still works and `p` reports the local MPD error.

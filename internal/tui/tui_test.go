@@ -61,6 +61,58 @@ func TestWebSocketURL(t *testing.T) {
 	}
 }
 
+func TestHandoffCompletesWhenWatchStateArrivesBeforeHTTPResult(t *testing.T) {
+	m := newModel("http://example.invalid")
+	m.grabbing = true
+	m.grabTarget = "laptop"
+
+	updated, _ := m.Update(stateMsg{Agents: []agentStatus{{Host: "laptop", Online: true, Connected: true}}})
+	m = updated.(model)
+	if !m.grabConfirmed {
+		t.Fatal("watch state did not confirm the selected target")
+	}
+	updated, _ = m.Update(grabResultMsg{})
+	m = updated.(model)
+	if m.message != "handoff complete" {
+		t.Fatalf("message = %q, want handoff complete", m.message)
+	}
+}
+
+func TestTogglePlaybackAndIndicator(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/toggle" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		defer r.Body.Close()
+		var payload map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload["host"] != "laptop" {
+			t.Fatalf("toggle host = %q", payload["host"])
+		}
+		_, _ = w.Write([]byte(`{"playing":true}`))
+	}))
+	defer server.Close()
+
+	m := newModel(server.URL)
+	updated, _ := m.Update(stateMsg{Agents: []agentStatus{{Host: "laptop", Online: true, Playing: true}}})
+	m = updated.(model)
+	updated, command := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
+	m = updated.(model)
+	if !m.toggling || command == nil {
+		t.Fatal("p did not start a playback toggle")
+	}
+	updated, _ = m.Update(command())
+	m = updated.(model)
+	if m.toggling || m.message != "playing on laptop" {
+		t.Fatalf("toggle result = toggling:%v message:%q", m.toggling, m.message)
+	}
+	if !strings.Contains(m.hostList(), "♪") {
+		t.Fatalf("playing host is missing music indicator: %s", m.hostList())
+	}
+}
+
 func TestAnimationDimensions(t *testing.T) {
 	lines := strings.Split(renderHeadset(0), "\n")
 	if len(lines) != artHeight {

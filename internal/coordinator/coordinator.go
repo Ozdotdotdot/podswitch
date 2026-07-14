@@ -38,6 +38,7 @@ type agentConn struct {
 	host      string
 	conn      *websocket.Conn
 	connected bool // last known BlueZ Connected state on this host
+	playing   bool // last known MPD playback state on this host
 	seenAt    time.Time
 
 	mu      sync.Mutex
@@ -70,6 +71,7 @@ func (c *Coordinator) Handler() http.Handler {
 	mux.HandleFunc("GET /ws/watch", c.handleWatchWS)
 	mux.HandleFunc("GET /api/state", c.handleState)
 	mux.HandleFunc("POST /api/grab", c.handleGrab)
+	mux.HandleFunc("POST /api/toggle", c.handleToggle)
 	return mux
 }
 
@@ -82,6 +84,7 @@ type agentStatus struct {
 	Host      string `json:"host"`
 	Online    bool   `json:"online"`
 	Connected bool   `json:"connected"`
+	Playing   bool   `json:"playing"`
 	SeenAt    string `json:"seenAt,omitempty"`
 }
 
@@ -100,6 +103,7 @@ func (c *Coordinator) currentState() stateResp {
 			Host:      host,
 			Online:    true,
 			Connected: a.connected,
+			Playing:   a.playing,
 			SeenAt:    a.seenAt.Format(time.RFC3339),
 		})
 		if a.connected {
@@ -184,6 +188,25 @@ func (c *Coordinator) handleGrab(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "holder": req.Host})
 }
 
+func (c *Coordinator) handleToggle(w http.ResponseWriter, r *http.Request) {
+	var req grabReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Host == "" {
+		writeErr(w, http.StatusBadRequest, "missing host")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	res, err := c.Toggle(ctx, req.Host)
+	if err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Host    string `json:"host"`
+		Playing *bool  `json:"playing,omitempty"`
+	}{Host: req.Host, Playing: res.Playing})
+}
+
 // Grab evicts whichever agent currently reports Connected and connects the
 // target host, re-verifying live state along the way rather than trusting
 // the cache blindly.
@@ -212,6 +235,18 @@ func (c *Coordinator) Grab(ctx context.Context, targetHost string) error {
 		return err
 	}
 	return nil
+}
+
+// Toggle forwards a play/pause request to one live agent. The result carries
+// its authoritative post-toggle playback state for the caller's UI feedback.
+func (c *Coordinator) Toggle(ctx context.Context, host string) (proto.Envelope, error) {
+	c.mu.Lock()
+	agent, ok := c.agents[host]
+	c.mu.Unlock()
+	if !ok {
+		return proto.Envelope{}, errHostOffline(host)
+	}
+	return c.sendCommand(ctx, agent, proto.ActionToggle)
 }
 
 func (c *Coordinator) sendCommand(ctx context.Context, a *agentConn, action string) (proto.Envelope, error) {
@@ -287,9 +322,15 @@ func (c *Coordinator) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		c.mu.Lock()
 		a.seenAt = time.Now()
 		stateChanged := false
-		if msg.Type == proto.TypeState && msg.Connected != nil && a.connected != *msg.Connected {
-			a.connected = *msg.Connected
-			stateChanged = true
+		if msg.Type == proto.TypeState {
+			if msg.Connected != nil && a.connected != *msg.Connected {
+				a.connected = *msg.Connected
+				stateChanged = true
+			}
+			if msg.Playing != nil && a.playing != *msg.Playing {
+				a.playing = *msg.Playing
+				stateChanged = true
+			}
 		}
 		c.mu.Unlock()
 		if stateChanged {

@@ -25,7 +25,8 @@ const (
 	// This must exceed the coordinator's whole-handoff deadline. The inline
 	// pulse remains visible while a slow host waits for real PipeWire
 	// resources instead of failing from an arbitrary client deadline.
-	grabTimeout = 140 * time.Second
+	grabTimeout   = 140 * time.Second
+	toggleTimeout = 15 * time.Second
 )
 
 var (
@@ -46,12 +47,18 @@ type agentStatus struct {
 	Host      string `json:"host"`
 	Online    bool   `json:"online"`
 	Connected bool   `json:"connected"`
+	Playing   bool   `json:"playing"`
 	SeenAt    string `json:"seenAt,omitempty"`
 }
 
 type stateMsg stateResp
 type watchStatusMsg struct{ err error }
 type grabResultMsg struct{ err error }
+type toggleResultMsg struct {
+	host    string
+	playing *bool
+	err     error
+}
 type tickMsg time.Time
 
 // Run resolves the coordinator then starts the full-screen interactive UI.
@@ -75,6 +82,10 @@ type model struct {
 	selected      int
 	agents        []agentStatus
 	grabbing      bool
+	grabTarget    string
+	grabConfirmed bool
+	toggling      bool
+	toggleTarget  string
 	pulse         int
 	message       string
 	watchErr      error
@@ -114,8 +125,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.watchErr = nil
+		if m.grabTarget != "" {
+			for _, agent := range m.agents {
+				if agent.Host == m.grabTarget && agent.Connected {
+					m.grabConfirmed = true
+					if !m.grabbing {
+						m.message = "handoff complete"
+						m.grabTarget = ""
+					}
+					break
+				}
+			}
+		}
 		if !m.grabbing {
-			m.message = "live updates connected"
+			if m.grabTarget == "" && !m.grabConfirmed {
+				m.message = "live updates connected"
+			}
 		}
 	case watchStatusMsg:
 		m.watchErr = msg.err
@@ -124,10 +149,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case grabResultMsg:
 		m.grabbing = false
-		if msg.err != nil {
+		if m.grabConfirmed {
+			m.message = "handoff complete"
+			m.grabTarget = ""
+		} else if msg.err != nil {
 			m.message = "grab failed: " + msg.err.Error()
 		} else {
 			m.message = "handoff requested, waiting for live state"
+		}
+	case toggleResultMsg:
+		m.toggling = false
+		m.toggleTarget = ""
+		if msg.err != nil {
+			m.message = "play/pause failed: " + msg.err.Error()
+		} else if msg.playing != nil && *msg.playing {
+			m.message = "playing on " + msg.host
+		} else if msg.playing != nil {
+			m.message = "paused on " + msg.host
+		} else {
+			m.message = "playback toggled on " + msg.host
 		}
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -155,8 +195,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 			m.grabbing = true
+			m.grabTarget = target.Host
+			m.grabConfirmed = false
 			m.message = "moving AirPods to " + target.Host
 			return m, grab(m.baseURL, target.Host)
+		case "p":
+			if len(m.agents) == 0 || m.grabbing || m.toggling {
+				break
+			}
+			target := m.agents[m.selected]
+			if !target.Online {
+				m.message = target.Host + " is offline"
+				break
+			}
+			m.toggling = true
+			m.toggleTarget = target.Host
+			m.message = "toggling playback on " + target.Host
+			return m, toggle(m.baseURL, target.Host)
 		}
 	}
 	return m, nil
@@ -174,7 +229,7 @@ func (m model) View() string {
 			heading + "\n" + subtitle + "\n\n" + m.hostList(),
 	)
 	status := lipgloss.NewStyle().Foreground(muted).Render(m.message)
-	footer := lipgloss.NewStyle().Foreground(muted).Render("↑/↓ select  •  enter grab  •  q quit")
+	footer := lipgloss.NewStyle().Foreground(muted).Render("↑/↓ select  •  enter grab  •  p play/pause  •  q quit")
 	content := card + "\n\n" + status + "\n" + footer
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
@@ -201,13 +256,28 @@ func (m model) hostList() string {
 			name = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(agent.Host)
 		}
 		activity := ""
+		if agent.Playing {
+			activity += " " + musicIndicator(m.pulse)
+		}
 		if i == m.selected && m.grabbing {
 			frames := []string{"·", "*", "·", " "}
-			activity = " " + lipgloss.NewStyle().Foreground(accent).Render(frames[m.pulse%len(frames)])
+			activity += " " + lipgloss.NewStyle().Foreground(accent).Render(frames[m.pulse%len(frames)])
+		}
+		if i == m.selected && m.toggling && m.toggleTarget == agent.Host {
+			frames := []string{"·", "*", "·", " "}
+			activity += " " + lipgloss.NewStyle().Foreground(accent).Render(frames[m.pulse%len(frames)])
 		}
 		b.WriteString(prefix + marker + " " + name + activity + "  " + status + "\n")
 	}
 	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// musicIndicator keeps the note in one fixed terminal cell while a single
+// sparkle slowly travels outward. It signals playback without making the
+// host list feel like a visualizer.
+func musicIndicator(pulse int) string {
+	frames := []string{"♪ · ", "♪ ✧ ", "♪  ✦", "♪   "}
+	return lipgloss.NewStyle().Foreground(success).Render(frames[(pulse/8)%len(frames)])
 }
 
 func tick() tea.Cmd {
@@ -240,6 +310,36 @@ func grab(baseURL, host string) tea.Cmd {
 			return grabResultMsg{fmt.Errorf("%s", result.Error)}
 		}
 		return grabResultMsg{}
+	}
+}
+
+func toggle(baseURL, host string) tea.Cmd {
+	return func() tea.Msg {
+		body, _ := json.Marshal(map[string]string{"host": host})
+		ctx, cancel := context.WithTimeout(context.Background(), toggleTimeout)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/toggle", bytes.NewReader(body))
+		if err != nil {
+			return toggleResultMsg{host: host, err: err}
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return toggleResultMsg{host: host, err: err}
+		}
+		defer resp.Body.Close()
+		var result struct {
+			Playing *bool  `json:"playing"`
+			Error   string `json:"error"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&result)
+		if resp.StatusCode != http.StatusOK {
+			if result.Error == "" {
+				result.Error = resp.Status
+			}
+			return toggleResultMsg{host: host, err: fmt.Errorf("%s", result.Error)}
+		}
+		return toggleResultMsg{host: host, playing: result.Playing}
 	}
 }
 
