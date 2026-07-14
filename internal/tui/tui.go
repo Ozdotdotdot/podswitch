@@ -83,7 +83,8 @@ type model struct {
 	agents        []agentStatus
 	grabbing      bool
 	grabTarget    string
-	grabConfirmed bool
+	grabConnected bool
+	grabSucceeded bool
 	toggling      bool
 	toggleTarget  string
 	pulse         int
@@ -125,22 +126,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.watchErr = nil
+		completed := false
 		if m.grabTarget != "" {
+			m.grabConnected = false
 			for _, agent := range m.agents {
 				if agent.Host == m.grabTarget && agent.Connected {
-					m.grabConfirmed = true
-					if !m.grabbing {
+					m.grabConnected = true
+					if m.grabSucceeded {
 						m.message = "handoff complete"
 						m.grabTarget = ""
+						m.grabConnected = false
+						m.grabSucceeded = false
+						completed = true
 					}
 					break
 				}
 			}
 		}
-		if !m.grabbing {
-			if m.grabTarget == "" && !m.grabConfirmed {
-				m.message = "live updates connected"
-			}
+		if !m.grabbing && !completed && m.grabTarget == "" && !m.grabSucceeded {
+			m.message = "live updates connected"
 		}
 	case watchStatusMsg:
 		m.watchErr = msg.err
@@ -149,12 +153,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case grabResultMsg:
 		m.grabbing = false
-		if m.grabConfirmed {
+		if msg.err != nil {
+			// BlueZ can briefly report Connected before the agent has finished
+			// creating and routing the PipeWire sink. A failed command is never
+			// a completed handoff, regardless of that transient state.
+			m.grabTarget = ""
+			m.grabConnected = false
+			m.grabSucceeded = false
+			m.message = "grab failed: " + msg.err.Error()
+		} else if m.grabConnected {
 			m.message = "handoff complete"
 			m.grabTarget = ""
-		} else if msg.err != nil {
-			m.message = "grab failed: " + msg.err.Error()
+			m.grabConnected = false
 		} else {
+			m.grabSucceeded = true
 			m.message = "handoff requested, waiting for live state"
 		}
 	case toggleResultMsg:
@@ -196,7 +208,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.grabbing = true
 			m.grabTarget = target.Host
-			m.grabConfirmed = false
+			m.grabConnected = false
+			m.grabSucceeded = false
 			m.message = "moving AirPods to " + target.Host
 			return m, grab(m.baseURL, target.Host)
 		case "p":
@@ -210,7 +223,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.toggling = true
 			m.toggleTarget = target.Host
-			m.message = "toggling playback on " + target.Host
 			return m, toggle(m.baseURL, target.Host)
 		}
 	}
@@ -256,9 +268,6 @@ func (m model) hostList() string {
 			name = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(agent.Host)
 		}
 		activity := ""
-		if agent.Playing {
-			activity += " " + musicIndicator(m.pulse)
-		}
 		if i == m.selected && m.grabbing {
 			frames := []string{"·", "*", "·", " "}
 			activity += " " + lipgloss.NewStyle().Foreground(accent).Render(frames[m.pulse%len(frames)])
@@ -267,7 +276,10 @@ func (m model) hostList() string {
 			frames := []string{"·", "*", "·", " "}
 			activity += " " + lipgloss.NewStyle().Foreground(accent).Render(frames[m.pulse%len(frames)])
 		}
-		b.WriteString(prefix + marker + " " + name + activity + "  " + status + "\n")
+		if agent.Playing {
+			activity += " " + musicIndicator(m.pulse)
+		}
+		b.WriteString(prefix + marker + " " + name + "  " + status + activity + "\n")
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }

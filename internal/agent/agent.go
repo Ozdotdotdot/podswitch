@@ -206,7 +206,7 @@ func (a *Agent) doConnect(ctx context.Context) error {
 			return err
 		}
 	}
-	if err := audio.WaitForCard(ctx, a.headset.PipeWireCard, 10*time.Second); err != nil {
+	if err := audio.WaitForCard(ctx, a.headset.PipeWireCard); err != nil {
 		return err
 	}
 	return audio.RouteTo(ctx, a.headset.PipeWireCard, a.headset.PipeWireSinkPrefix)

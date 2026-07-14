@@ -30,7 +30,7 @@ func RouteTo(ctx context.Context, cardName, sinkPrefix string) error {
 		return fmt.Errorf("activate a2dp: %w", err)
 	}
 
-	sink, err := waitForSink(ctx, sinkPrefix, 10*time.Second)
+	sink, err := waitForSink(ctx, sinkPrefix)
 	if err != nil {
 		return fmt.Errorf("wait for airpods sink: %w", err)
 	}
@@ -135,14 +135,10 @@ func moveAllStreamsTo(ctx context.Context, sink string) {
 
 func activateA2DP(ctx context.Context, cardName string) error {
 	profiles := []string{"a2dp-sink-sbc_xq", "a2dp-sink-sbc", "a2dp-sink"}
-	var lastErr error
-	deadline := time.Now().Add(25 * time.Second)
-	for time.Now().Before(deadline) {
+	for {
 		for _, p := range profiles {
 			if err := run(ctx, "pactl", "set-card-profile", cardName, p); err == nil {
 				return nil
-			} else {
-				lastErr = err
 			}
 		}
 		select {
@@ -151,16 +147,15 @@ func activateA2DP(ctx context.Context, cardName string) error {
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
-	return lastErr
 }
 
-// waitForSink polls for a sink matching prefix — PipeWire's suffix after
-// the MAC isn't stable, so always prefix-match. bluetoothctl/BlueZ's
-// Connect returns before PipeWire registers the card; this is the "wait on
-// the resource, never a fixed sleep" fix from the POC (250ms poll, capped).
-func waitForSink(ctx context.Context, prefix string, timeout time.Duration) (string, error) {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+// waitForSink polls for a sink matching prefix until the caller's operation
+// deadline. PipeWire's suffix after the MAC isn't stable, so always
+// prefix-match. BlueZ's Connect returns before PipeWire registers a sink; the
+// predicate, rather than a fixed delay or shorter nested timeout, controls
+// readiness.
+func waitForSink(ctx context.Context, prefix string) (string, error) {
+	for {
 		out, err := exec.CommandContext(ctx, "pactl", "list", "sinks", "short").Output()
 		if err == nil {
 			for _, line := range strings.Split(string(out), "\n") {
@@ -179,15 +174,14 @@ func waitForSink(ctx context.Context, prefix string, timeout time.Duration) (str
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
-	return "", fmt.Errorf("sink with prefix %q did not appear within %s", prefix, timeout)
 }
 
 // WaitForCard polls for the PipeWire card itself (not yet the sink) —
-// mirrors AirpodsHere.sh's wait_for_card, used right after a BlueZ Connect
-// before attempting any profile/routing calls.
-func WaitForCard(ctx context.Context, cardName string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+// mirrors AirpodsHere.sh's wait_for_card, used right after a BlueZ Connect.
+// It waits until the caller's operation deadline so a cold, low-power host is
+// not rejected by a separate early timer.
+func WaitForCard(ctx context.Context, cardName string) error {
+	for {
 		out, err := exec.CommandContext(ctx, "pactl", "list", "cards", "short").Output()
 		if err == nil && strings.Contains(string(out), cardName) {
 			return nil
@@ -198,7 +192,6 @@ func WaitForCard(ctx context.Context, cardName string, timeout time.Duration) er
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
-	return fmt.Errorf("card %q did not appear within %s", cardName, timeout)
 }
 
 func unloadModule(ctx context.Context, moduleID string) {
