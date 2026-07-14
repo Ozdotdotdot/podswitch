@@ -1,6 +1,7 @@
 // Command podswitchd is the podswitch daemon: it runs as either the
 // coordinator (always-on switch server) or an agent (audio-endpoint host).
-// It never doubles as a CLI — see cmd/podswitch for that.
+// Its only maintenance subcommand is "podswitchd update", which replaces the
+// local release binaries and restarts installed podswitch user services.
 package main
 
 import (
@@ -13,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -24,9 +26,14 @@ import (
 	"github.com/Ozdotdotdot/podswitch/internal/config"
 	"github.com/Ozdotdotdot/podswitch/internal/coordinator"
 	"github.com/Ozdotdotdot/podswitch/internal/discovery"
+	"github.com/Ozdotdotdot/podswitch/internal/updater"
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "update" {
+		runUpdate()
+		return
+	}
 	mode := flag.String("mode", "", "role: agent|coordinator (required)")
 	addr := flag.String("addr", config.DefaultCoordinatorAddr, "coordinator: listen address")
 	coordinatorAddr := flag.String("coordinator", "", "agent: coordinator host:port (or ws(s):// URL); resolved via env/cache/mDNS if unset")
@@ -43,9 +50,57 @@ func main() {
 		}
 		runAgent(*host, coord)
 	default:
-		fmt.Fprintln(os.Stderr, "podswitchd: -mode is required and must be \"agent\" or \"coordinator\"")
+		fmt.Fprintln(os.Stderr, "usage: podswitchd -mode agent|coordinator [options] | podswitchd update")
 		os.Exit(1)
 	}
+}
+
+func runUpdate() {
+	executable, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "podswitchd update: locate executable: %v\n", err)
+		os.Exit(1)
+	}
+	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
+		executable = resolved
+	}
+	binDir := filepath.Dir(executable)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	fmt.Println("Downloading the latest podswitch release...")
+	if err := updater.Latest(ctx, binDir); err != nil {
+		fmt.Fprintf(os.Stderr, "podswitchd update: %v\n", err)
+		os.Exit(1)
+	}
+	services, err := restartInstalledServices(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "podswitchd update: binaries updated, but restart failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Updated podswitch and podswitchd in %s.\n", binDir)
+	if len(services) == 0 {
+		fmt.Println("No enabled podswitch user service was found to restart.")
+		return
+	}
+	fmt.Printf("Restarted %s.\n", strings.Join(services, ", "))
+}
+
+func restartInstalledServices(ctx context.Context) ([]string, error) {
+	units := []string{"podswitch-coordinator.service", "podswitch-agent.service"}
+	var restarted []string
+	for _, unit := range units {
+		enabled := exec.CommandContext(ctx, "systemctl", "--user", "is-enabled", "--quiet", unit).Run() == nil
+		active := exec.CommandContext(ctx, "systemctl", "--user", "is-active", "--quiet", unit).Run() == nil
+		if !enabled && !active {
+			continue
+		}
+		if err := exec.CommandContext(ctx, "systemctl", "--user", "restart", unit).Run(); err != nil {
+			return restarted, fmt.Errorf("restart %s: %w", unit, err)
+		}
+		restarted = append(restarted, unit)
+	}
+	return restarted, nil
 }
 
 func runCoordinator(addr string) {

@@ -246,6 +246,7 @@ fi
 UNIT="podswitch-$ROLE.service"
 loginctl enable-linger "$USER" || true
 systemctl --user daemon-reload
-systemctl --user enable --now "$UNIT"
+systemctl --user enable "$UNIT"
+systemctl --user restart "$UNIT"
 echo "==> Installed and started $UNIT"
 systemctl --user --no-pager --full status "$UNIT" | sed -n '1,8p' || true

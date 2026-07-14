@@ -9,6 +9,7 @@ podswitch                 # interactive picker (p toggles selected host's MPD)
 podswitch status          # script-friendly human status
 podswitch status --json   # raw coordinator snapshot
 podswitch here            # move AirPods to this host
+podswitchd update         # update both local binaries and restart its service
 ```
 
 ## Quick setup
@@ -33,6 +34,19 @@ curl -fsSL https://github.com/Ozdotdotdot/podswitch/releases/latest/download/ins
 ```
 
 The installer writes a systemd user service and starts it. Leave the coordinator address blank during interactive agent setup to use LAN mDNS discovery, or enter an address to pin it.
+
+## Updating
+
+Run this on any installed coordinator or agent to download the matching
+prebuilt release, verify its checksum, replace both `podswitch` and
+`podswitchd`, then restart the local enabled podswitch user service:
+
+```sh
+podswitchd update
+```
+
+It updates only the machine where you run it. Agents remain intentionally
+inbound-inaccessible, so coordinated fleet updates are a separate feature.
 
 For development, build locally instead:
 
