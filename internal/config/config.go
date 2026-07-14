@@ -18,7 +18,9 @@ const PipeWireCard = "bluez_card.REDACTED_MAC"
 const PipeWireSinkPrefix = "bluez_output.REDACTED_MAC"
 
 // DefaultCoordinatorAddr is the coordinator's HTTP/WS listen address.
-const DefaultCoordinatorAddr = ":9090"
+// (9090 collides with Prometheus on the switch server; 8090 groups with
+// switch-alarm's 8080.)
+const DefaultCoordinatorAddr = ":8090"
 
 // Hostname returns the local hostname, used as the default agent identity.
 func Hostname() string {

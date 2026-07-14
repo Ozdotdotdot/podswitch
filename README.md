@@ -6,8 +6,8 @@ see `DESIGN.md` for why the iPhone/Mac leg is out of scope).
 One binary, three roles selected by flag:
 
 ```
-podswitchd -mode coordinator -addr :9090
-podswitchd -mode agent -coordinator <ts-name>:9090 -host <this-host>
+podswitchd -mode coordinator -addr :8090
+podswitchd -mode agent -coordinator <ts-name>:8090 -host <this-host>
 ```
 
 Agents dial OUT to the coordinator over a persistent WebSocket, so a
@@ -17,11 +17,11 @@ socket just means that host can't be holding the buds.
 ## CLI
 
 ```
-podswitchd here  -coordinator <ts-name>:9090          # grab the AirPods onto this host
-podswitchd state -coordinator <ts-name>:9090           # who's online / who's holding them
+podswitchd here  -coordinator <ts-name>:8090          # grab the AirPods onto this host
+podswitchd state -coordinator <ts-name>:8090           # who's online / who's holding them
 ```
 
-Or set `PODSWITCH_COORDINATOR=<ts-name>:9090` once and drop the flag.
+Or set `PODSWITCH_COORDINATOR=<ts-name>:8090` once and drop the flag.
 
 ## Build
 
@@ -35,7 +35,7 @@ make amd64   # x86_64 hosts
 
 ```
 rsync -a deploy/ bin/podswitchd-arm64 user@host:~/podswitch-deploy/
-ssh user@host 'cd ~/podswitch-deploy && ./install.sh agent 100.64.0.1:9090'
+ssh user@host 'cd ~/podswitch-deploy && ./install.sh agent 100.64.0.1:8090'
 # or on the switch server:
 ssh user@switchserver 'cd ~/podswitch-deploy && ./install.sh coordinator'
 ```

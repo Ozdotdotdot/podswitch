@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/podswitchd -mode coordinator -addr :9090
+ExecStart=%h/.local/bin/podswitchd -mode coordinator -addr :8090
 Restart=always
 RestartSec=3
 
