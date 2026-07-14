@@ -1,0 +1,12 @@
+# Go build output
+/bin/
+
+# Editor / OS cruft
+.DS_Store
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Logs
+*.log

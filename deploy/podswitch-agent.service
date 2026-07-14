@@ -1,0 +1,14 @@
+[Unit]
+Description=podswitch agent (AirPods cross-device handoff endpoint)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/podswitch/agent.env
+ExecStart=%h/.local/bin/podswitchd -mode agent -coordinator ${COORDINATOR} -host ${HOST}
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

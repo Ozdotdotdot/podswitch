@@ -1,0 +1,13 @@
+[Unit]
+Description=podswitch coordinator (AirPods cross-device handoff brain)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/podswitchd -mode coordinator -addr :9090
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
