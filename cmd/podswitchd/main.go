@@ -1,15 +1,12 @@
-// Command podswitchd is the single podswitch binary: it runs as the
-// coordinator (always-on switch server) or as an agent (audio-endpoint
-// host), and doubles as the CLI ("podswitchd here" / "podswitchd state")
-// for talking to a running coordinator.
+// Command podswitchd is the podswitch daemon: it runs as either the
+// coordinator (always-on switch server) or an agent (audio-endpoint host).
+// It never doubles as a CLI — see cmd/podswitch for that.
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -30,39 +27,13 @@ import (
 )
 
 func main() {
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "here":
-			cliHere(os.Args[2:])
-			return
-		case "state":
-			cliState(os.Args[2:])
-			return
-		case "config":
-			cliConfig(os.Args[2:])
-			return
-		}
-	}
-	runDaemon()
-}
-
-func runDaemon() {
-	mode := flag.String("mode", "auto", "role: auto|agent|coordinator")
+	mode := flag.String("mode", "", "role: agent|coordinator (required)")
 	addr := flag.String("addr", config.DefaultCoordinatorAddr, "coordinator: listen address")
 	coordinatorAddr := flag.String("coordinator", "", "agent: coordinator host:port (or ws(s):// URL); resolved via env/cache/mDNS if unset")
 	host := flag.String("host", config.Hostname(), "agent: identity reported to the coordinator")
 	flag.Parse()
 
-	resolved := *mode
-	if resolved == "auto" {
-		if *coordinatorAddr != "" || os.Getenv("PODSWITCH_COORDINATOR") != "" {
-			resolved = "agent"
-		} else {
-			resolved = "coordinator"
-		}
-	}
-
-	switch resolved {
+	switch *mode {
 	case "coordinator":
 		runCoordinator(*addr)
 	case "agent":
@@ -72,7 +43,8 @@ func runDaemon() {
 		}
 		runAgent(*host, coord)
 	default:
-		log.Fatalf("unknown mode %q", resolved)
+		fmt.Fprintln(os.Stderr, "podswitchd: -mode is required and must be \"agent\" or \"coordinator\"")
+		os.Exit(1)
 	}
 }
 
@@ -162,72 +134,4 @@ func waitForShutdown() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 	log.Println("podswitchd: shutting down...")
-}
-
-// --- CLI ---
-
-func resolveCoordinatorOrExit(explicit string) string {
-	addr, err := config.ResolveCoordinatorAddr(explicit)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "podswitch: %v\n", err)
-		os.Exit(1)
-	}
-	return addr
-}
-
-func cliConfig(args []string) {
-	if len(args) < 2 || args[0] != "coordinator" {
-		fmt.Fprintln(os.Stderr, "usage: podswitchd config coordinator <host:port>")
-		os.Exit(1)
-	}
-	addr := args[1]
-	if err := config.SetCoordinatorAddr(addr); err != nil {
-		fmt.Fprintf(os.Stderr, "podswitch config: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("coordinator set to %s (%s)\n", addr, config.UserConfigPath())
-}
-
-func cliHere(args []string) {
-	fs := flag.NewFlagSet("here", flag.ExitOnError)
-	coord := fs.String("coordinator", "", "coordinator host:port (overrides env/cache/mDNS)")
-	host := fs.String("host", config.Hostname(), "host to grab the AirPods onto")
-	fs.Parse(args)
-
-	base := normalizeHTTP(resolveCoordinatorOrExit(*coord))
-	body, _ := json.Marshal(map[string]string{"host": *host})
-	resp, err := http.Post(base+"/api/grab", "application/json", strings.NewReader(string(body)))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "podswitch here: %v\n", err)
-		os.Exit(1)
-	}
-	defer resp.Body.Close()
-	out, _ := io.ReadAll(resp.Body)
-	fmt.Println(string(out))
-	if resp.StatusCode != http.StatusOK {
-		os.Exit(1)
-	}
-}
-
-func cliState(args []string) {
-	fs := flag.NewFlagSet("state", flag.ExitOnError)
-	coord := fs.String("coordinator", "", "coordinator host:port (overrides env/cache/mDNS)")
-	fs.Parse(args)
-
-	base := normalizeHTTP(resolveCoordinatorOrExit(*coord))
-	resp, err := http.Get(base + "/api/state")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "podswitch state: %v\n", err)
-		os.Exit(1)
-	}
-	defer resp.Body.Close()
-	out, _ := io.ReadAll(resp.Body)
-	fmt.Println(string(out))
-}
-
-func normalizeHTTP(addr string) string {
-	if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
-		return addr
-	}
-	return "http://" + addr
 }

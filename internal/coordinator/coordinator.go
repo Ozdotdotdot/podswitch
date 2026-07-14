@@ -46,19 +46,24 @@ func (a *agentConn) send(ctx context.Context, env proto.Envelope) error {
 
 // Coordinator holds the live agent registry and serves the HTTP+WS API.
 type Coordinator struct {
-	mu     sync.Mutex
-	agents map[string]*agentConn // host -> conn
+	mu       sync.Mutex
+	agents   map[string]*agentConn    // host -> conn
+	watchers map[*websocket.Conn]bool // read-only state subscribers (TUI/widgets)
 }
 
 // New creates an empty Coordinator.
 func New() *Coordinator {
-	return &Coordinator{agents: make(map[string]*agentConn)}
+	return &Coordinator{
+		agents:   make(map[string]*agentConn),
+		watchers: make(map[*websocket.Conn]bool),
+	}
 }
 
-// Handler returns the HTTP mux: WS accept endpoint + curl-able JSON API.
+// Handler returns the HTTP mux: WS accept endpoints + curl-able JSON API.
 func (c *Coordinator) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ws/agent", c.handleAgentWS)
+	mux.HandleFunc("GET /ws/watch", c.handleWatchWS)
 	mux.HandleFunc("GET /api/state", c.handleState)
 	mux.HandleFunc("POST /api/grab", c.handleGrab)
 	return mux
@@ -77,6 +82,11 @@ type agentStatus struct {
 }
 
 func (c *Coordinator) handleState(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, c.currentState())
+}
+
+// currentState snapshots the registry under lock.
+func (c *Coordinator) currentState() stateResp {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -92,7 +102,61 @@ func (c *Coordinator) handleState(w http.ResponseWriter, r *http.Request) {
 			resp.Holder = host
 		}
 	}
-	writeJSON(w, http.StatusOK, resp)
+	return resp
+}
+
+// handleWatchWS is a read-only push feed for the TUI/widgets: sends the
+// current snapshot immediately, then again on every registry mutation
+// (agent connects/disconnects, BlueZ state changes) via broadcastState.
+// No hello handshake needed since watchers never send commands.
+func (c *Coordinator) handleWatchWS(w http.ResponseWriter, r *http.Request) {
+	conn, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return
+	}
+
+	c.mu.Lock()
+	c.watchers[conn] = true
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		delete(c.watchers, conn)
+		c.mu.Unlock()
+		conn.Close(websocket.StatusNormalClosure, "")
+	}()
+
+	ctx := r.Context()
+	if err := wsjson.Write(ctx, conn, c.currentState()); err != nil {
+		return
+	}
+
+	// Watchers never send anything meaningful; block on reads purely to
+	// detect the connection closing (client gone / network drop).
+	for {
+		if _, _, err := conn.Read(ctx); err != nil {
+			return
+		}
+	}
+}
+
+// broadcastState pushes the current snapshot to every connected watcher.
+// Best-effort: a watcher that fails to receive is dropped (its own read
+// loop in handleWatchWS will notice the closed connection and clean up).
+func (c *Coordinator) broadcastState() {
+	state := c.currentState()
+
+	c.mu.Lock()
+	conns := make([]*websocket.Conn, 0, len(c.watchers))
+	for conn := range c.watchers {
+		conns = append(conns, conn)
+	}
+	c.mu.Unlock()
+
+	for _, conn := range conns {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = wsjson.Write(ctx, conn, state)
+		cancel()
+	}
 }
 
 type grabReq struct {
@@ -197,6 +261,7 @@ func (c *Coordinator) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	c.agents[a.host] = a
 	c.mu.Unlock()
 	log.Printf("coordinator: agent %q connected", a.host)
+	c.broadcastState()
 
 	defer func() {
 		c.mu.Lock()
@@ -205,6 +270,7 @@ func (c *Coordinator) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		}
 		c.mu.Unlock()
 		log.Printf("coordinator: agent %q disconnected", a.host)
+		c.broadcastState()
 	}()
 
 	go c.pingLoop(runCtx, a)
@@ -216,10 +282,15 @@ func (c *Coordinator) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		}
 		c.mu.Lock()
 		a.seenAt = time.Now()
-		if msg.Type == proto.TypeState && msg.Connected != nil {
+		stateChanged := false
+		if msg.Type == proto.TypeState && msg.Connected != nil && a.connected != *msg.Connected {
 			a.connected = *msg.Connected
+			stateChanged = true
 		}
 		c.mu.Unlock()
+		if stateChanged {
+			c.broadcastState()
+		}
 
 		switch msg.Type {
 		case proto.TypeState:
