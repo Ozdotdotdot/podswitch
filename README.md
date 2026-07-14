@@ -14,6 +14,18 @@ podswitch pi p            # toggle MPD playback on host "pi"
 podswitchd update         # update both local binaries and restart its service
 ```
 
+## Prerequisites
+
+Each machine needs:
+
+- **Linux** with **systemd** (user services), `amd64` or `arm64` (including Raspberry Pi 3 class machines).
+- **BlueZ** (`bluetoothctl`), with the AirPods already paired to that machine.
+- **PipeWire with WirePlumber** (`wpctl`), not plain PulseAudio. This is the default on most current distros, but confirm `wpctl` exists on your `PATH` before installing — volume control and headphone switching won't work without it.
+
+Optional, only for the `p`/`</>` playback controls in the picker:
+
+- **MPD** running on the agent's host, plus `mpc` on that agent's `PATH`. Without it, headphone switching still works; MPD controls just report a local error.
+
 ## Quick setup
 
 Install the coordinator on one always-on Linux machine, then install an agent on every machine that can use the headphones. The installer downloads a prebuilt release archive for the host architecture. It supports `amd64` and `arm64`, including Raspberry Pi 3 class machines.
@@ -73,4 +85,4 @@ Upload `dist/podswitch_linux_amd64.tar.gz`, `dist/podswitch_linux_arm64.tar.gz`,
 - Agents keep an outbound WebSocket to the coordinator. This works for roaming and sleeping laptops without inbound connections.
 - The coordinator exposes `GET /api/state`, `POST /api/grab`, `POST /api/toggle`, `POST /api/media`, and `GET /ws/watch`.
 - In the interactive picker, `p` toggles MPD playback, `[`/`]` lower/raise the selected host's system output volume by 5%, and `<`/`>` select the previous/next MPD track. A small note-and-sparkle mark appears beside hosts currently reporting MPD playback. The agent watches MPD with `mpc idle player`, rather than polling it.
-- Playback control is optional. It needs the standard `mpc` command configured to reach MPD on that agent; without it, switching the headphones still works and MPD controls report the local error. Volume controls use `wpctl` against the active user's default PipeWire sink.
+- Volume controls use `wpctl` against the active user's default PipeWire sink (see Prerequisites).
