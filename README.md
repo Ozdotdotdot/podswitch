@@ -9,6 +9,8 @@ podswitch                 # interactive picker (p toggles selected host's MPD)
 podswitch status          # script-friendly human status
 podswitch status --json   # raw coordinator snapshot
 podswitch here            # move AirPods to this host
+podswitch pi              # move AirPods to host "pi"
+podswitch pi p            # toggle MPD playback on host "pi"
 podswitchd update         # update both local binaries and restart its service
 ```
 

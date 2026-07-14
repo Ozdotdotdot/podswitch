@@ -39,9 +39,9 @@ func main() {
 			cliConfig(os.Args[2:])
 			return
 		}
+		cliHostShortcut(os.Args[1:])
+		return
 	}
-	fmt.Fprintln(os.Stderr, "usage: podswitch [tui] [--coordinator host:port] | here | status | config coordinator <host:port>")
-	os.Exit(1)
 }
 
 func cliTUI(args []string) {
@@ -103,6 +103,64 @@ func cliHere(args []string) {
 		os.Exit(1)
 	}
 	fmt.Printf("AirPods are here (%s).\n", result.Holder)
+}
+
+// cliHostShortcut makes the quick shell forms ergonomic: "podswitch pi"
+// grabs the headphones for pi, while "podswitch pi p" toggles pi's MPD.
+func cliHostShortcut(args []string) {
+	if len(args) < 1 || len(args) > 2 || (len(args) == 2 && args[1] != "p") {
+		fmt.Fprintln(os.Stderr, "usage: podswitch <host> [p]")
+		os.Exit(1)
+	}
+	host := args[0]
+	action := "grab"
+	if len(args) == 2 {
+		action = "toggle"
+	}
+	result, err := hostAction(normalizeHTTP(resolveCoordinatorOrExit("")), host, action)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "podswitch %s: %v\n", host, err)
+		os.Exit(1)
+	}
+	if action == "grab" {
+		fmt.Printf("AirPods are here (%s).\n", result.Holder)
+		return
+	}
+	if result.Playing != nil && *result.Playing {
+		fmt.Printf("playing on %s\n", host)
+	} else if result.Playing != nil {
+		fmt.Printf("paused on %s\n", host)
+	} else {
+		fmt.Printf("playback toggled on %s\n", host)
+	}
+}
+
+type hostActionResult struct {
+	Holder  string `json:"holder"`
+	Playing *bool  `json:"playing"`
+	Error   string `json:"error"`
+}
+
+func hostAction(base, host, action string) (hostActionResult, error) {
+	path := "/api/grab"
+	if action == "toggle" {
+		path = "/api/toggle"
+	}
+	body, _ := json.Marshal(map[string]string{"host": host})
+	resp, err := http.Post(base+path, "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		return hostActionResult{}, err
+	}
+	defer resp.Body.Close()
+	var result hostActionResult
+	_ = json.NewDecoder(resp.Body).Decode(&result)
+	if resp.StatusCode != http.StatusOK {
+		if result.Error == "" {
+			result.Error = resp.Status
+		}
+		return hostActionResult{}, fmt.Errorf("%s", result.Error)
+	}
+	return result, nil
 }
 
 type stateResp struct {
