@@ -15,6 +15,12 @@ podswitch here            # move AirPods to this host
 
 Install the coordinator on one always-on Linux machine, then install an agent on every machine that can use the headphones. The installer downloads a prebuilt release archive for the host architecture. It supports `amd64` and `arm64`, including Raspberry Pi 3 class machines.
 
+### Install order
+
+1. Run the installer on the always-on server and choose **Coordinator**.
+2. Run it on every machine that can use the headphones and choose **Agent**.
+3. On each agent, select the paired AirPods when prompted. Then run `podswitch` to open the picker.
+
 ```sh
 # Interactive setup. Choose coordinator or agent, then select a paired
 # Bluetooth device. AirPods appear first when present.
