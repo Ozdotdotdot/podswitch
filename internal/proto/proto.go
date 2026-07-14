@@ -17,6 +17,10 @@ const (
 	ActionDisconnect = "disconnect"
 	ActionConnect    = "connect" // connect + route audio locally
 	ActionToggle     = "toggle"  // toggle local MPD playback
+	ActionVolumeDown = "volume-down"
+	ActionVolumeUp   = "volume-up"
+	ActionPrevious   = "previous"
+	ActionNext       = "next"
 )
 
 // Envelope is the single message shape on the wire; only the fields

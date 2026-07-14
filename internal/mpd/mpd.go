@@ -1,6 +1,6 @@
 // Package mpd provides the deliberately small slice of MPD control used by
-// podswitch: toggle playback and watch its player state. It shells out to the
-// standard mpc client so it respects the user's normal MPD configuration.
+// podswitch: control playback and watch its player state. It shells out to
+// the standard mpc client so it respects the user's normal MPD configuration.
 package mpd
 
 import (
@@ -26,8 +26,18 @@ func playingOutput(output string) bool { return strings.Contains(output, "[playi
 
 // Toggle asks MPD to switch between play and pause.
 func Toggle(ctx context.Context) error {
-	if out, err := exec.CommandContext(ctx, "mpc", "toggle").CombinedOutput(); err != nil {
-		return fmt.Errorf("mpc toggle: %w: %s", err, strings.TrimSpace(string(out)))
+	return run(ctx, "toggle")
+}
+
+// Previous skips to the previous MPD track.
+func Previous(ctx context.Context) error { return run(ctx, "prev") }
+
+// Next skips to the next MPD track.
+func Next(ctx context.Context) error { return run(ctx, "next") }
+
+func run(ctx context.Context, action string) error {
+	if out, err := exec.CommandContext(ctx, "mpc", action).CombinedOutput(); err != nil {
+		return fmt.Errorf("mpc %s: %w: %s", action, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

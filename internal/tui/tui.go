@@ -27,6 +27,7 @@ const (
 	// resources instead of failing from an arbitrary client deadline.
 	grabTimeout   = 140 * time.Second
 	toggleTimeout = 15 * time.Second
+	mediaTimeout  = 15 * time.Second
 )
 
 var (
@@ -59,6 +60,10 @@ type toggleResultMsg struct {
 	playing *bool
 	err     error
 }
+type mediaResultMsg struct {
+	host, action string
+	err          error
+}
 type tickMsg time.Time
 
 // Run resolves the coordinator then starts the full-screen interactive UI.
@@ -87,6 +92,8 @@ type model struct {
 	grabSucceeded bool
 	toggling      bool
 	toggleTarget  string
+	mediaBusy     bool
+	mediaTarget   string
 	pulse         int
 	message       string
 	watchErr      error
@@ -143,7 +150,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		if !m.grabbing && !completed && m.grabTarget == "" && !m.grabSucceeded {
+		if !m.grabbing && !completed && m.grabTarget == "" && !m.grabSucceeded && (m.message == "connecting to coordinator" || m.message == "reconnecting to coordinator") {
 			m.message = "live updates connected"
 		}
 	case watchStatusMsg:
@@ -181,16 +188,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.message = "playback toggled on " + msg.host
 		}
+	case mediaResultMsg:
+		m.mediaBusy = false
+		m.mediaTarget = ""
+		if msg.err != nil {
+			m.message = mediaLabel(msg.action) + " failed: " + msg.err.Error()
+		} else {
+			m.message = mediaSuccess(msg.action) + " on " + msg.host
+		}
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c", "esc":
 			return m, tea.Quit
 		case "up", "k":
-			if len(m.agents) > 0 && !m.grabbing {
+			if len(m.agents) > 0 && !m.grabbing && !m.toggling && !m.mediaBusy {
 				m.selected = (m.selected + len(m.agents) - 1) % len(m.agents)
 			}
 		case "down", "j":
-			if len(m.agents) > 0 && !m.grabbing {
+			if len(m.agents) > 0 && !m.grabbing && !m.toggling && !m.mediaBusy {
 				m.selected = (m.selected + 1) % len(m.agents)
 			}
 		case "enter":
@@ -213,7 +228,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.message = "moving AirPods to " + target.Host
 			return m, grab(m.baseURL, target.Host)
 		case "p":
-			if len(m.agents) == 0 || m.grabbing || m.toggling {
+			if len(m.agents) == 0 || m.grabbing || m.toggling || m.mediaBusy {
 				break
 			}
 			target := m.agents[m.selected]
@@ -224,6 +239,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toggling = true
 			m.toggleTarget = target.Host
 			return m, toggle(m.baseURL, target.Host)
+		case "[", "]", "<", ">":
+			if len(m.agents) == 0 || m.grabbing || m.toggling || m.mediaBusy {
+				break
+			}
+			target := m.agents[m.selected]
+			if !target.Online {
+				m.message = target.Host + " is offline"
+				break
+			}
+			action := mediaActionForKey(msg.String())
+			m.mediaBusy = true
+			m.mediaTarget = target.Host
+			return m, media(m.baseURL, target.Host, action)
 		}
 	}
 	return m, nil
@@ -241,7 +269,7 @@ func (m model) View() string {
 			heading + "\n" + subtitle + "\n\n" + m.hostList(),
 	)
 	status := lipgloss.NewStyle().Foreground(muted).Render(m.message)
-	footer := lipgloss.NewStyle().Foreground(muted).Render("↑/↓ select  •  enter grab  •  p play/pause  •  q quit")
+	footer := lipgloss.NewStyle().Foreground(muted).Render("↑/↓ select  •  enter grab  •  p play/pause  •  [/] volume  •  </> track  •  q quit")
 	content := card + "\n\n" + status + "\n" + footer
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
@@ -273,6 +301,10 @@ func (m model) hostList() string {
 			activity += " " + lipgloss.NewStyle().Foreground(accent).Render(frames[m.pulse%len(frames)])
 		}
 		if i == m.selected && m.toggling && m.toggleTarget == agent.Host {
+			frames := []string{"·", "*", "·", " "}
+			activity += " " + lipgloss.NewStyle().Foreground(accent).Render(frames[m.pulse%len(frames)])
+		}
+		if i == m.selected && m.mediaBusy && m.mediaTarget == agent.Host {
 			frames := []string{"·", "*", "·", " "}
 			activity += " " + lipgloss.NewStyle().Foreground(accent).Render(frames[m.pulse%len(frames)])
 		}
@@ -352,6 +384,78 @@ func toggle(baseURL, host string) tea.Cmd {
 			return toggleResultMsg{host: host, err: fmt.Errorf("%s", result.Error)}
 		}
 		return toggleResultMsg{host: host, playing: result.Playing}
+	}
+}
+
+func media(baseURL, host, action string) tea.Cmd {
+	return func() tea.Msg {
+		body, _ := json.Marshal(map[string]string{"host": host, "action": action})
+		ctx, cancel := context.WithTimeout(context.Background(), mediaTimeout)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/media", bytes.NewReader(body))
+		if err != nil {
+			return mediaResultMsg{host: host, action: action, err: err}
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return mediaResultMsg{host: host, action: action, err: err}
+		}
+		defer resp.Body.Close()
+		var result struct {
+			Error string `json:"error"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&result)
+		if resp.StatusCode != http.StatusOK {
+			if result.Error == "" {
+				result.Error = resp.Status
+			}
+			return mediaResultMsg{host: host, action: action, err: fmt.Errorf("%s", result.Error)}
+		}
+		return mediaResultMsg{host: host, action: action}
+	}
+}
+
+func mediaActionForKey(key string) string {
+	switch key {
+	case "[":
+		return "volume-down"
+	case "]":
+		return "volume-up"
+	case "<":
+		return "previous"
+	case ">":
+		return "next"
+	default:
+		return ""
+	}
+}
+func mediaLabel(action string) string {
+	switch action {
+	case "volume-down":
+		return "volume down"
+	case "volume-up":
+		return "volume up"
+	case "previous":
+		return "previous track"
+	case "next":
+		return "next track"
+	default:
+		return "media action"
+	}
+}
+func mediaSuccess(action string) string {
+	switch action {
+	case "volume-down":
+		return "volume lowered"
+	case "volume-up":
+		return "volume raised"
+	case "previous":
+		return "previous track"
+	case "next":
+		return "next track"
+	default:
+		return "media action complete"
 	}
 }
 

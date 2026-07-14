@@ -72,7 +72,28 @@ func (c *Coordinator) Handler() http.Handler {
 	mux.HandleFunc("GET /api/state", c.handleState)
 	mux.HandleFunc("POST /api/grab", c.handleGrab)
 	mux.HandleFunc("POST /api/toggle", c.handleToggle)
+	mux.HandleFunc("POST /api/media", c.handleMedia)
 	return mux
+}
+
+type mediaReq struct {
+	Host   string `json:"host"`
+	Action string `json:"action"`
+}
+
+func (c *Coordinator) handleMedia(w http.ResponseWriter, r *http.Request) {
+	var req mediaReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Host == "" || !isMediaAction(req.Action) {
+		writeErr(w, http.StatusBadRequest, "invalid media action or missing host")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	if _, err := c.Media(ctx, req.Host, req.Action); err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"host": req.Host, "action": req.Action})
 }
 
 type stateResp struct {
@@ -249,6 +270,29 @@ func (c *Coordinator) Toggle(ctx context.Context, host string) (proto.Envelope, 
 	return c.sendCommand(ctx, agent, proto.ActionToggle)
 }
 
+// Media forwards one supported compact media control to a live agent.
+func (c *Coordinator) Media(ctx context.Context, host, action string) (proto.Envelope, error) {
+	if !isMediaAction(action) {
+		return proto.Envelope{}, errUnsupportedAction(action)
+	}
+	c.mu.Lock()
+	agent, ok := c.agents[host]
+	c.mu.Unlock()
+	if !ok {
+		return proto.Envelope{}, errHostOffline(host)
+	}
+	return c.sendCommand(ctx, agent, action)
+}
+
+func isMediaAction(action string) bool {
+	switch action {
+	case proto.ActionVolumeDown, proto.ActionVolumeUp, proto.ActionPrevious, proto.ActionNext:
+		return true
+	default:
+		return false
+	}
+}
+
 func (c *Coordinator) sendCommand(ctx context.Context, a *agentConn, action string) (proto.Envelope, error) {
 	reqID := time.Now().UTC().Format("20060102T150405.000000000")
 	ch := make(chan proto.Envelope, 1)
@@ -386,4 +430,8 @@ func errHostOffline(host string) error {
 
 func errCommandFailed(host, action, msg string) error {
 	return fmt.Errorf("%s on %q failed: %s", action, host, msg)
+}
+
+func errUnsupportedAction(action string) error {
+	return fmt.Errorf("unsupported media action %q", action)
 }

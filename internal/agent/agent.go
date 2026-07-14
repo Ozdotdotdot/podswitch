@@ -42,6 +42,14 @@ type Agent struct {
 
 	bt      *bluez.Watcher
 	headset config.Headset
+	media   mediaHandlers
+}
+
+type mediaHandlers struct {
+	volumeDown func(context.Context) error
+	volumeUp   func(context.Context) error
+	previous   func(context.Context) error
+	next       func(context.Context) error
 }
 
 // connection permits the independent BlueZ watcher, MPD watcher, and command
@@ -67,7 +75,7 @@ func New(host, coordinatorURL string) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Agent{Host: host, CoordinatorURL: coordinatorURL, bt: bt, headset: headset}, nil
+	return &Agent{Host: host, CoordinatorURL: coordinatorURL, bt: bt, headset: headset, media: defaultMediaHandlers()}, nil
 }
 
 // Run connects and reconnects forever until ctx is cancelled.
@@ -169,6 +177,8 @@ func (a *Agent) handleCommand(ctx context.Context, conn *connection, cmd proto.E
 			playing = &state
 			a.reportPlayback(ctx, conn, state)
 		}
+	case proto.ActionVolumeDown, proto.ActionVolumeUp, proto.ActionPrevious, proto.ActionNext:
+		err = a.doMedia(cmdCtx, cmd.Action)
 	default:
 		err = errUnknownAction(cmd.Action)
 	}
@@ -182,6 +192,29 @@ func (a *Agent) handleCommand(ctx context.Context, conn *connection, cmd proto.E
 	}
 	if werr := conn.write(ctx, res); werr != nil {
 		log.Printf("agent: send result: %v", werr)
+	}
+}
+
+func defaultMediaHandlers() mediaHandlers {
+	return mediaHandlers{volumeDown: audio.VolumeDown, volumeUp: audio.VolumeUp, previous: mpd.Previous, next: mpd.Next}
+}
+
+func (a *Agent) doMedia(ctx context.Context, action string) error {
+	handlers := a.media
+	if handlers.volumeDown == nil {
+		handlers = defaultMediaHandlers()
+	}
+	switch action {
+	case proto.ActionVolumeDown:
+		return handlers.volumeDown(ctx)
+	case proto.ActionVolumeUp:
+		return handlers.volumeUp(ctx)
+	case proto.ActionPrevious:
+		return handlers.previous(ctx)
+	case proto.ActionNext:
+		return handlers.next(ctx)
+	default:
+		return errUnknownAction(action)
 	}
 }
 
