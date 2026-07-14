@@ -1,8 +1,8 @@
 // Package audio ports the proven AirpodsOn.sh / AirpodsOff.sh PipeWire
 // routing logic into Go: activate A2DP, park streams on a transition null
 // sink while the card profile flips, then move everything onto (or off of)
-// the AirPods sink. See DESIGN.md for why the null-sink parking exists
-// (avoids apps latching onto a sink that's about to die mid-transition).
+// the AirPods sink. The null-sink parking avoids apps latching onto a sink
+// that's about to die mid-transition.
 package audio
 
 import (

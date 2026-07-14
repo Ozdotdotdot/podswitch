@@ -1,8 +1,7 @@
 // Command podswitch is the CLI for talking to a running podswitchd
 // coordinator: "podswitch status" to see who's holding the AirPods,
 // "podswitch here" to grab them, "podswitch config" to pin a coordinator
-// address. Bare "podswitch" (no subcommand) is reserved for an interactive
-// TUI (not yet implemented — see HANDOFF.md).
+// address. Bare "podswitch" (no subcommand) launches an interactive TUI.
 package main
 
 import (
