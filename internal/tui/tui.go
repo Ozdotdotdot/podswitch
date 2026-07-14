@@ -20,7 +20,13 @@ import (
 	"github.com/Ozdotdotdot/podswitch/internal/config"
 )
 
-const animationFPS = 12
+const (
+	animationFPS = 12
+	// This must exceed the coordinator's whole-handoff deadline. The inline
+	// pulse remains visible while a slow host waits for real PipeWire
+	// resources instead of failing from an arbitrary client deadline.
+	grabTimeout = 140 * time.Second
+)
 
 var (
 	muted   = lipgloss.Color("241")
@@ -211,7 +217,7 @@ func tick() tea.Cmd {
 func grab(baseURL, host string) tea.Cmd {
 	return func() tea.Msg {
 		body, _ := json.Marshal(map[string]string{"host": host})
-		ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), grabTimeout)
 		defer cancel()
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/grab", bytes.NewReader(body))
 		if err != nil {

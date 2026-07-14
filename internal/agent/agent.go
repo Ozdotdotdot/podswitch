@@ -27,8 +27,9 @@ const (
 	reconnectDelay = 5 * time.Second
 	// A freshly connected Bluetooth card can take longer than the initial
 	// card appearance to expose an A2DP profile, especially on low-power
-	// hosts. Leave enough time for the bounded PipeWire readiness checks.
-	commandTimeout = 40 * time.Second
+	// hosts. This covers Connect plus the bounded card, profile, and sink
+	// readiness checks. The coordinator and TUI deadlines must outlive it.
+	commandTimeout = 60 * time.Second
 	version        = "0.1.0"
 )
 

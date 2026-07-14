@@ -26,7 +26,11 @@ import (
 
 const (
 	pingInterval = 20 * time.Second
-	cmdTimeout   = 15 * time.Second
+	// A grab can require an agent disconnect followed by a destination
+	// connect. Each agent has its own 60 second bounded readiness operation,
+	// so this enclosing deadline must cover both commands without reporting a
+	// false failure while PipeWire is still registering the destination sink.
+	cmdTimeout = 130 * time.Second
 )
 
 // agentConn is one connected agent.
