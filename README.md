@@ -1,57 +1,53 @@
 # podswitch
 
-Cross-device AirPods Max handoff across your Linux boxes (Tailscale-only —
-see `DESIGN.md` for why the iPhone/Mac leg is out of scope).
+Move AirPods Max between Linux machines. A coordinator orchestrates the handoff, and each audio host runs a small agent that controls BlueZ and PipeWire.
 
-One binary, three roles selected by flag:
+Run `podswitch` with no arguments for the interactive picker. It receives an initial state snapshot and every later change through one persistent WebSocket connection. There is no UI polling.
 
-```
-podswitchd -mode coordinator -addr :8090
-podswitchd -mode agent -coordinator <ts-name>:8090 -host <this-host>
-```
-
-Agents dial OUT to the coordinator over a persistent WebSocket, so a
-sleeping/roaming laptop never needs to be addressed inbound — a dropped
-socket just means that host can't be holding the buds.
-
-## CLI
-
-```
-podswitchd here    # grab the AirPods onto this host
-podswitchd state   # who's online / who's holding them
+```sh
+podswitch                 # interactive picker
+podswitch status          # script-friendly human status
+podswitch status --json   # raw coordinator snapshot
+podswitch here            # move AirPods to this host
 ```
 
-No `-coordinator` needed most of the time. It's resolved in order:
+## Quick setup
 
-1. `-coordinator <host:port>` flag (one-off override)
-2. `PODSWITCH_COORDINATOR` env var
-3. cached `~/.config/podswitch/config.toml`
-4. mDNS (`_podswitch._tcp`, LAN-only, ~3s) — the coordinator advertises its
-   Tailscale address, so once discovered on the home LAN the cached copy
-   keeps working when you're away too
+Install the coordinator on one always-on Linux machine, then install an agent on every machine that can use the headphones. The installer downloads a prebuilt release archive for the host architecture. It supports `amd64` and `arm64`, including Raspberry Pi 3 class machines.
 
-Define it once explicitly instead of waiting on mDNS:
+```sh
+# Coordinator
+curl -fsSL https://github.com/Ozdotdotdot/podswitch/releases/latest/download/install.sh \
+  | bash -s -- coordinator
 
-```
-podswitchd config coordinator 100.64.0.1:8090
-```
-
-## Build
-
-```
-make build   # native
-make arm64   # Pi
-make amd64   # x86_64 hosts
+# Agent
+curl -fsSL https://github.com/Ozdotdotdot/podswitch/releases/latest/download/install.sh \
+  | bash -s -- agent coordinator-host:8090 AA:BB:CC:DD:EE:FF
 ```
 
-## Deploy
+The installer writes a systemd user service and starts it. Agents can discover a coordinator over mDNS on the local network, but pinning `coordinator-host:8090` is more predictable.
 
-```
-rsync -a deploy/ bin/podswitchd-arm64 user@host:~/podswitch-deploy/
-ssh user@host 'cd ~/podswitch-deploy && ./install.sh agent 100.64.0.1:8090'
-# or on the switch server:
-ssh user@switchserver 'cd ~/podswitch-deploy && ./install.sh coordinator'
+For development, build locally instead:
+
+```sh
+./deploy/install.sh agent coordinator-host:8090 AA:BB:CC:DD:EE:FF --source go
 ```
 
-See `DESIGN.md` for the full design rationale and roadmap (Phase 1 is what's
-implemented here; attention-follow and widgets are later phases).
+## Release artifacts
+
+Build the two uploadable release archives and checksums:
+
+```sh
+make dist
+```
+
+Upload `dist/podswitch_linux_amd64.tar.gz`, `dist/podswitch_linux_arm64.tar.gz`, and `dist/checksums.txt` to a GitHub Release. Also upload `deploy/install.sh` as `install.sh`. Archive names are intentionally stable so the install command can use GitHub's `latest/download` URL.
+
+## Architecture
+
+- `podswitchd` is the daemon. Run it as either a coordinator or agent.
+- `podswitch` is the CLI and Bubble Tea client.
+- Agents keep an outbound WebSocket to the coordinator. This works for roaming and sleeping laptops without inbound connections.
+- The coordinator exposes `GET /api/state`, `POST /api/grab`, and `GET /ws/watch`.
+
+See [DESIGN.md](DESIGN.md) for the architecture rationale and [HANDOFF.md](HANDOFF.md) for the current engineering state.

@@ -16,7 +16,7 @@ import (
 const transitionSink = "airpods_transition"
 
 // RouteTo activates the AirPods' A2DP profile and moves all audio onto it.
-// cardName/sinkPrefix are config.PipeWireCard/PipeWireSinkPrefix.
+// cardName and sinkPrefix are derived from the agent's configured headset MAC.
 func RouteTo(ctx context.Context, cardName, sinkPrefix string) error {
 	cleanupStaleTransitionModules(ctx)
 
@@ -136,11 +136,19 @@ func moveAllStreamsTo(ctx context.Context, sink string) {
 func activateA2DP(ctx context.Context, cardName string) error {
 	profiles := []string{"a2dp-sink-sbc_xq", "a2dp-sink-sbc", "a2dp-sink"}
 	var lastErr error
-	for _, p := range profiles {
-		if err := run(ctx, "pactl", "set-card-profile", cardName, p); err == nil {
-			return nil
-		} else {
-			lastErr = err
+	deadline := time.Now().Add(25 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, p := range profiles {
+			if err := run(ctx, "pactl", "set-card-profile", cardName, p); err == nil {
+				return nil
+			} else {
+				lastErr = err
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(250 * time.Millisecond):
 		}
 	}
 	return lastErr

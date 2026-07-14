@@ -25,7 +25,10 @@ import (
 const (
 	dialTimeout    = 10 * time.Second
 	reconnectDelay = 5 * time.Second
-	commandTimeout = 20 * time.Second
+	// A freshly connected Bluetooth card can take longer than the initial
+	// card appearance to expose an A2DP profile, especially on low-power
+	// hosts. Leave enough time for the bounded PipeWire readiness checks.
+	commandTimeout = 40 * time.Second
 	version        = "0.1.0"
 )
 
@@ -34,16 +37,21 @@ type Agent struct {
 	Host           string
 	CoordinatorURL string // e.g. ws://switchserver:9090/ws/agent
 
-	bt *bluez.Watcher
+	bt      *bluez.Watcher
+	headset config.Headset
 }
 
 // New prepares an agent bound to the given coordinator WS URL.
 func New(host, coordinatorURL string) (*Agent, error) {
-	bt, err := bluez.New(config.AirPodsDevicePath)
+	headset, err := config.CurrentHeadset()
 	if err != nil {
 		return nil, err
 	}
-	return &Agent{Host: host, CoordinatorURL: coordinatorURL, bt: bt}, nil
+	bt, err := bluez.New(headset.DevicePath)
+	if err != nil {
+		return nil, err
+	}
+	return &Agent{Host: host, CoordinatorURL: coordinatorURL, bt: bt, headset: headset}, nil
 }
 
 // Run connects and reconnects forever until ctx is cancelled.
@@ -148,7 +156,7 @@ func (a *Agent) doDisconnect(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return audio.RouteAway(ctx, config.PipeWireCard, fallback)
+	return audio.RouteAway(ctx, a.headset.PipeWireCard, fallback)
 }
 
 func (a *Agent) doConnect(ctx context.Context) error {
@@ -161,10 +169,10 @@ func (a *Agent) doConnect(ctx context.Context) error {
 			return err
 		}
 	}
-	if err := audio.WaitForCard(ctx, config.PipeWireCard, 10*time.Second); err != nil {
+	if err := audio.WaitForCard(ctx, a.headset.PipeWireCard, 10*time.Second); err != nil {
 		return err
 	}
-	return audio.RouteTo(ctx, config.PipeWireCard, config.PipeWireSinkPrefix)
+	return audio.RouteTo(ctx, a.headset.PipeWireCard, a.headset.PipeWireSinkPrefix)
 }
 
 func errUnknownAction(action string) error {

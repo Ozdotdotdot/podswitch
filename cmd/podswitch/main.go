@@ -16,9 +16,14 @@ import (
 	"time"
 
 	"github.com/Ozdotdotdot/podswitch/internal/config"
+	"github.com/Ozdotdotdot/podswitch/internal/tui"
 )
 
 func main() {
+	if len(os.Args) == 1 || (len(os.Args) > 1 && os.Args[1] == "tui") {
+		cliTUI(os.Args[2:])
+		return
+	}
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "here":
@@ -32,8 +37,18 @@ func main() {
 			return
 		}
 	}
-	fmt.Fprintln(os.Stderr, "podswitch: interactive TUI not implemented yet — use \"status\", \"here\", or \"config\"")
+	fmt.Fprintln(os.Stderr, "usage: podswitch [tui] [--coordinator host:port] | here | status | config coordinator <host:port>")
 	os.Exit(1)
+}
+
+func cliTUI(args []string) {
+	fs := flag.NewFlagSet("tui", flag.ExitOnError)
+	coord := fs.String("coordinator", "", "coordinator host:port (overrides env/cache/mDNS)")
+	fs.Parse(args)
+	if err := tui.Run(*coord); err != nil {
+		fmt.Fprintf(os.Stderr, "podswitch: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func resolveCoordinatorOrExit(explicit string) string {

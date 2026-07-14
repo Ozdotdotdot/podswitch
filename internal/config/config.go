@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/pelletier/go-toml/v2"
@@ -15,19 +16,33 @@ import (
 	"github.com/Ozdotdotdot/podswitch/internal/discovery"
 )
 
-// AirPodsMAC is the AirPods Max MAC address, constant across every host.
-const AirPodsMAC = "AA:BB:CC:DD:EE:FF"
+// Headset describes the BlueZ and PipeWire names derived from a headset MAC.
+// Each agent must set PODSWITCH_AIRPODS_MAC, normally through agent.env.
+type Headset struct {
+	MAC                string
+	DevicePath         string
+	PipeWireCard       string
+	PipeWireSinkPrefix string
+}
 
-// AirPodsDevicePath is the BlueZ D-Bus object path for the AirPods, constant
-// across every host (all on hci0).
-const AirPodsDevicePath = "/org/bluez/hci0/dev_REDACTED_MAC"
-
-// PipeWireCard is the PipeWire card name for the AirPods.
-const PipeWireCard = "bluez_card.REDACTED_MAC"
-
-// PipeWireSinkPrefix is the stable prefix of the AirPods' PipeWire sink name
-// (the suffix after the MAC is unstable — always prefix-match).
-const PipeWireSinkPrefix = "bluez_output.REDACTED_MAC"
+// CurrentHeadset reads PODSWITCH_AIRPODS_MAC and derives the BlueZ and
+// PipeWire identifiers used by the agent. Keeping this out of source makes
+// release builds safe to publish and reusable across machines.
+func CurrentHeadset() (Headset, error) {
+	mac := strings.ToUpper(os.Getenv("PODSWITCH_AIRPODS_MAC"))
+	parsed, err := net.ParseMAC(mac)
+	if err != nil || len(parsed) != 6 {
+		return Headset{}, fmt.Errorf("PODSWITCH_AIRPODS_MAC must be a Bluetooth MAC such as AA:BB:CC:DD:EE:FF")
+	}
+	parts := strings.Split(mac, ":")
+	underscore := strings.Join(parts, "_")
+	return Headset{
+		MAC:                mac,
+		DevicePath:         "/org/bluez/hci0/dev_" + underscore,
+		PipeWireCard:       "bluez_card." + underscore,
+		PipeWireSinkPrefix: "bluez_output." + underscore,
+	}, nil
+}
 
 // DefaultCoordinatorAddr is the coordinator's HTTP/WS listen address.
 // (9090 collides with Prometheus on the switch server; 8090 groups with
