@@ -50,5 +50,3 @@ Upload `dist/podswitch_linux_amd64.tar.gz`, `dist/podswitch_linux_arm64.tar.gz`,
 - `podswitch` is the CLI and Bubble Tea client.
 - Agents keep an outbound WebSocket to the coordinator. This works for roaming and sleeping laptops without inbound connections.
 - The coordinator exposes `GET /api/state`, `POST /api/grab`, and `GET /ws/watch`.
-
-See [DESIGN.md](DESIGN.md) for the architecture rationale and [HANDOFF.md](HANDOFF.md) for the current engineering state.
