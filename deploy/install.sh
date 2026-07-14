@@ -64,7 +64,9 @@ choose_headset() {
         macs+=("$mac")
         names+=("${name:-Unnamed device}")
       fi
-    done < <(bluetoothctl devices Paired 2>/dev/null || true)
+    # bluetoothctl may add ANSI styling to a connected device even when its
+    # output is captured. Strip control sequences before parsing its fields.
+    done < <(bluetoothctl devices Paired 2>/dev/null | sed $'s/\033\\[[0-9;]*[[:alpha:]]//g' || true)
   fi
 
   for index in "${!macs[@]}"; do
