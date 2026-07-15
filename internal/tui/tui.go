@@ -269,8 +269,10 @@ func (m model) View() string {
 			heading + "\n" + subtitle + "\n\n" + m.hostList(),
 	)
 	status := lipgloss.NewStyle().Foreground(muted).Render(m.message)
-	footer := lipgloss.NewStyle().Foreground(muted).Render("↑/↓ select  •  enter grab  •  p play/pause  •  [/] volume  •  </> track  •  q quit")
-	content := card + "\n\n" + status + "\n" + footer
+	footerWidth := min(lipgloss.Width(card), m.width)
+	footer := lipgloss.NewStyle().Foreground(muted).Width(footerWidth).Align(lipgloss.Center).
+		Render("↑/↓ select  •  enter grab  •  p play/pause  •  [/] volume  •  </> track  •  q quit")
+	content := lipgloss.JoinVertical(lipgloss.Center, card, "", status, footer)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
 
