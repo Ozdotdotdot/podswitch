@@ -257,23 +257,51 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// compactMinWidth is the narrowest terminal willing to trade the stacked
+// card layout for the side-by-side one; below it there isn't room for the
+// art and host list next to each other without wrapping badly.
+const compactMinWidth = 84
+
 func (m model) View() string {
 	if m.width == 0 {
 		return ""
 	}
-	art := lipgloss.NewStyle().Foreground(muted).Render(renderHeadset(time.Since(m.started).Seconds() * .95))
-	heading := lipgloss.NewStyle().Bold(true).Foreground(text).Render("AirPods Max")
-	subtitle := lipgloss.NewStyle().Foreground(muted).Render("Move audio between your Linux machines")
-	card := panel.Width(48).Render(
-		lipgloss.Place(48, artHeight, lipgloss.Center, lipgloss.Center, art) + "\n\n" +
-			heading + "\n" + subtitle + "\n\n" + m.hostList(),
-	)
+	card := m.renderCard()
+	// The stacked layout's height is dominated by the fixed-size art block.
+	// Once it (plus the status/footer lines below it) can't fit, switch to
+	// the side-by-side layout instead of letting the top of the card scroll
+	// off-screen.
+	if lipgloss.Height(card)+4 > m.height && m.width >= compactMinWidth {
+		card = m.renderCompactCard()
+	}
 	status := lipgloss.NewStyle().Foreground(muted).Render(m.message)
 	footerWidth := min(lipgloss.Width(card), m.width)
 	footer := lipgloss.NewStyle().Foreground(muted).Width(footerWidth).Align(lipgloss.Center).
 		Render("↑/↓ select  •  enter grab  •  p play/pause  •  [/] volume  •  </> track  •  q quit")
 	content := lipgloss.JoinVertical(lipgloss.Center, card, "", status, footer)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+}
+
+func (m model) renderCard() string {
+	art := lipgloss.NewStyle().Foreground(muted).Render(renderHeadset(time.Since(m.started).Seconds() * .95))
+	heading := lipgloss.NewStyle().Bold(true).Foreground(text).Render("AirPods Max")
+	subtitle := lipgloss.NewStyle().Foreground(muted).Render("Move audio between your Linux machines")
+	return panel.Width(48).Render(
+		lipgloss.Place(48, artHeight, lipgloss.Center, lipgloss.Center, art) + "\n\n" +
+			heading + "\n" + subtitle + "\n\n" + m.hostList(),
+	)
+}
+
+// renderCompactCard places the art beside the host list instead of above it,
+// trading width (plentiful in a short-but-wide terminal) for height (scarce
+// there) so the card still fits without clipping.
+func (m model) renderCompactCard() string {
+	art := lipgloss.NewStyle().Foreground(muted).Render(renderHeadset(time.Since(m.started).Seconds() * .95))
+	heading := lipgloss.NewStyle().Bold(true).Foreground(text).Render("AirPods Max")
+	subtitle := lipgloss.NewStyle().Foreground(muted).Render("Move audio between your Linux machines")
+	right := heading + "\n" + subtitle + "\n\n" + m.hostList()
+	row := lipgloss.JoinHorizontal(lipgloss.Center, art, "   ", right)
+	return panel.Render(row)
 }
 
 func (m model) hostList() string {
