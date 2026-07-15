@@ -257,11 +257,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// compactMinWidth is the narrowest terminal willing to trade the stacked
-// card layout for the side-by-side one; below it there isn't room for the
-// art and host list next to each other without wrapping badly.
-const compactMinWidth = 84
-
 func (m model) View() string {
 	if m.width == 0 {
 		return ""
@@ -270,9 +265,11 @@ func (m model) View() string {
 	// The stacked layout's height is dominated by the fixed-size art block.
 	// Once it (plus the status/footer lines below it) can't fit, switch to
 	// the side-by-side layout instead of letting the top of the card scroll
-	// off-screen.
-	if lipgloss.Height(card)+4 > m.height && m.width >= compactMinWidth {
-		card = m.renderCompactCard()
+	// off-screen — but only if that layout actually fits the width too.
+	if lipgloss.Height(card)+4 > m.height {
+		if compact := m.renderCompactCard(); lipgloss.Width(compact) <= m.width {
+			card = compact
+		}
 	}
 	status := lipgloss.NewStyle().Foreground(muted).Render(m.message)
 	footerWidth := min(lipgloss.Width(card), m.width)
@@ -294,14 +291,24 @@ func (m model) renderCard() string {
 
 // renderCompactCard places the art beside the host list instead of above it,
 // trading width (plentiful in a short-but-wide terminal) for height (scarce
-// there) so the card still fits without clipping.
+// there) so the card still fits without clipping. It also uses tighter
+// padding and a cropped art block, since every row/column shaved here is one
+// more terminal size this layout can still fit.
 func (m model) renderCompactCard() string {
-	art := lipgloss.NewStyle().Foreground(muted).Render(renderHeadset(time.Since(m.started).Seconds() * .95))
+	art := lipgloss.NewStyle().Foreground(muted).Render(compactHeadset(time.Since(m.started).Seconds() * .95))
 	heading := lipgloss.NewStyle().Bold(true).Foreground(text).Render("AirPods Max")
 	subtitle := lipgloss.NewStyle().Foreground(muted).Render("Move audio between your Linux machines")
 	right := heading + "\n" + subtitle + "\n\n" + m.hostList()
-	row := lipgloss.JoinHorizontal(lipgloss.Center, art, "   ", right)
-	return panel.Render(row)
+	row := lipgloss.JoinHorizontal(lipgloss.Center, art, "  ", right)
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(faint).Padding(1, 1).Render(row)
+}
+
+// compactHeadset crops renderHeadset's dead margin: across the full rotation
+// the top 3 and bottom 2 rows are always blank, so the compact layout can
+// reclaim that height instead of rendering it as empty space.
+func compactHeadset(angle float64) string {
+	lines := strings.Split(renderHeadset(angle), "\n")
+	return strings.Join(lines[3:len(lines)-2], "\n")
 }
 
 func (m model) hostList() string {
