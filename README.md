@@ -14,6 +14,11 @@ podswitch pi p            # toggle MPD playback on host "pi"
 podswitchd update         # update both local binaries and restart its service
 ```
 
+The persistent read-only AACP observer is experimental and disabled by
+default because an always-open private control socket can destabilize A2DP
+transport acquisition. Do not enable `PODSWITCH_EXPERIMENTAL_AACP_OBSERVER=1`
+on normal installations.
+
 ## Prerequisites
 
 Each machine needs:

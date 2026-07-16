@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 
@@ -82,10 +83,14 @@ func New(host, coordinatorURL string) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Agent{
+	a := &Agent{
 		Host: host, CoordinatorURL: coordinatorURL, ControllerMAC: controllerMAC,
-		bt: bt, headset: headset, media: defaultMediaHandlers(), observeSource: aacp.Observe,
-	}, nil
+		bt: bt, headset: headset, media: defaultMediaHandlers(),
+	}
+	if os.Getenv("PODSWITCH_EXPERIMENTAL_AACP_OBSERVER") == "1" {
+		a.observeSource = aacp.Observe
+	}
+	return a, nil
 }
 
 // Run connects and reconnects forever until ctx is cancelled.
@@ -147,7 +152,7 @@ func (a *Agent) watchAndReport(ctx context.Context, conn *connection) {
 			observerCancel()
 			observerCancel = nil
 		}
-		if connected {
+		if connected && a.observeSource != nil {
 			observerCtx, cancel := context.WithCancel(ctx)
 			observerCancel = cancel
 			go a.watchSource(observerCtx, conn)
