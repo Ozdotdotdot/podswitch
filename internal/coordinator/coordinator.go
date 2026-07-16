@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,11 +37,12 @@ const (
 
 // agentConn is one connected agent.
 type agentConn struct {
-	host      string
-	conn      *websocket.Conn
-	connected bool // last known BlueZ Connected state on this host
-	playing   bool // last known MPD playback state on this host
-	seenAt    time.Time
+	host          string
+	conn          *websocket.Conn
+	connected     bool // last known BlueZ Connected state on this host
+	playing       bool // last known MPD playback state on this host
+	controllerMAC string
+	seenAt        time.Time
 
 	mu      sync.Mutex
 	pending map[string]chan proto.Envelope // reqID -> result channel
@@ -52,9 +54,12 @@ func (a *agentConn) send(ctx context.Context, env proto.Envelope) error {
 
 // Coordinator holds the live agent registry and serves the HTTP+WS API.
 type Coordinator struct {
-	mu       sync.Mutex
-	agents   map[string]*agentConn    // host -> conn
-	watchers map[*websocket.Conn]bool // read-only state subscribers (TUI/widgets)
+	mu           sync.Mutex
+	agents       map[string]*agentConn    // host -> conn
+	watchers     map[*websocket.Conn]bool // read-only state subscribers (TUI/widgets)
+	activeSource string
+	sourceType   string
+	sourceSeenAt time.Time
 }
 
 // New creates an empty Coordinator.
@@ -101,15 +106,19 @@ type stateResp struct {
 	Holder         string        `json:"holder,omitempty"` // legacy: populated only for one connected host
 	ConnectedHosts []string      `json:"connectedHosts"`
 	AudioOwner     string        `json:"audioOwner,omitempty"` // empty until ownership is directly observed
+	ActiveSource   string        `json:"activeSource,omitempty"`
+	SourceType     string        `json:"sourceType,omitempty"`
+	SourceSeenAt   string        `json:"sourceSeenAt,omitempty"`
 	Agents         []agentStatus `json:"agents"`
 }
 
 type agentStatus struct {
-	Host      string `json:"host"`
-	Online    bool   `json:"online"`
-	Connected bool   `json:"connected"`
-	Playing   bool   `json:"playing"`
-	SeenAt    string `json:"seenAt,omitempty"`
+	Host          string `json:"host"`
+	Online        bool   `json:"online"`
+	Connected     bool   `json:"connected"`
+	Playing       bool   `json:"playing"`
+	SeenAt        string `json:"seenAt,omitempty"`
+	ControllerMAC string `json:"controllerMac,omitempty"`
 }
 
 func (c *Coordinator) handleState(w http.ResponseWriter, r *http.Request) {
@@ -121,17 +130,29 @@ func (c *Coordinator) currentState() stateResp {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	resp := stateResp{ConnectedHosts: []string{}}
+	resp := stateResp{ConnectedHosts: []string{}, ActiveSource: c.activeSource, SourceType: c.sourceType}
+	if !c.sourceSeenAt.IsZero() {
+		resp.SourceSeenAt = c.sourceSeenAt.Format(time.RFC3339Nano)
+	}
 	for host, a := range c.agents {
 		resp.Agents = append(resp.Agents, agentStatus{
-			Host:      host,
-			Online:    true,
-			Connected: a.connected,
-			Playing:   a.playing,
-			SeenAt:    a.seenAt.Format(time.RFC3339),
+			Host:          host,
+			Online:        true,
+			Connected:     a.connected,
+			Playing:       a.playing,
+			SeenAt:        a.seenAt.Format(time.RFC3339),
+			ControllerMAC: a.controllerMAC,
 		})
 		if a.connected {
 			resp.ConnectedHosts = append(resp.ConnectedHosts, host)
+		}
+	}
+	if resp.SourceType == "media" || resp.SourceType == "call" {
+		for host, a := range c.agents {
+			if a.connected && strings.EqualFold(a.controllerMAC, resp.ActiveSource) {
+				resp.AudioOwner = host
+				break
+			}
 		}
 	}
 	sort.Slice(resp.Agents, func(i, j int) bool { return resp.Agents[i].Host < resp.Agents[j].Host })
@@ -347,7 +368,7 @@ func (c *Coordinator) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a := &agentConn{host: env.Host, conn: conn, seenAt: time.Now(), pending: make(map[string]chan proto.Envelope)}
+	a := &agentConn{host: env.Host, conn: conn, controllerMAC: env.ControllerMAC, seenAt: time.Now(), pending: make(map[string]chan proto.Envelope)}
 	c.mu.Lock()
 	c.agents[a.host] = a
 	c.mu.Unlock()
@@ -381,6 +402,14 @@ func (c *Coordinator) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 			}
 			if msg.Playing != nil && a.playing != *msg.Playing {
 				a.playing = *msg.Playing
+				stateChanged = true
+			}
+			if msg.ActiveSource != nil {
+				c.activeSource = *msg.ActiveSource
+				if msg.SourceType != nil {
+					c.sourceType = *msg.SourceType
+				}
+				c.sourceSeenAt = time.Now()
 				stateChanged = true
 			}
 		}

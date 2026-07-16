@@ -44,6 +44,29 @@ func TestCurrentStateRetainsLegacyHolderForSingleConnection(t *testing.T) {
 	}
 }
 
+func TestCurrentStateMapsActiveSourceToConnectedAgent(t *testing.T) {
+	c := New()
+	c.agents["workstation"] = &agentConn{
+		host: "workstation", connected: true, controllerMAC: "70:D8:23:17:42:D7",
+	}
+	c.agents["pi"] = &agentConn{
+		host: "pi", connected: true, controllerMAC: "B8:27:EB:AB:DE:77",
+	}
+	c.activeSource = "b8:27:eb:ab:de:77"
+	c.sourceType = "media"
+	c.sourceSeenAt = time.Now()
+
+	state := c.currentState()
+	if state.AudioOwner != "pi" || state.ActiveSource != "b8:27:eb:ab:de:77" || state.SourceType != "media" {
+		t.Fatalf("unexpected source mapping: %#v", state)
+	}
+
+	c.sourceType = "none"
+	if state := c.currentState(); state.AudioOwner != "" {
+		t.Fatalf("none source retained an owner: %#v", state)
+	}
+}
+
 func TestToggleForwardsCommandAndReturnsPlaybackState(t *testing.T) {
 	c := New()
 	server := httptest.NewServer(c.Handler())

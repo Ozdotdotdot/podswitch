@@ -13,6 +13,8 @@ import (
 const (
 	busName        = "org.bluez"
 	device1Iface   = "org.bluez.Device1"
+	adapter1Iface  = "org.bluez.Adapter1"
+	adapterPath    = dbus.ObjectPath("/org/bluez/hci0")
 	propsIface     = "org.freedesktop.DBus.Properties"
 	propsChangedSg = "org.freedesktop.DBus.Properties.PropertiesChanged"
 )
@@ -22,6 +24,19 @@ const (
 type Watcher struct {
 	conn       *dbus.Conn
 	devicePath dbus.ObjectPath
+}
+
+// ControllerAddress returns the local hci0 Bluetooth controller address.
+func (w *Watcher) ControllerAddress() (string, error) {
+	v, err := w.conn.Object(busName, adapterPath).GetProperty(adapter1Iface + ".Address")
+	if err != nil {
+		return "", fmt.Errorf("read controller address: %w", err)
+	}
+	address, ok := v.Value().(string)
+	if !ok {
+		return "", fmt.Errorf("unexpected controller address type %T", v.Value())
+	}
+	return address, nil
 }
 
 // New connects to the system bus and prepares a watcher for the device at

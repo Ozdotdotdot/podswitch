@@ -167,6 +167,9 @@ type stateResp struct {
 	Holder         string        `json:"holder,omitempty"`
 	ConnectedHosts []string      `json:"connectedHosts"`
 	AudioOwner     string        `json:"audioOwner,omitempty"`
+	ActiveSource   string        `json:"activeSource,omitempty"`
+	SourceType     string        `json:"sourceType,omitempty"`
+	SourceSeenAt   string        `json:"sourceSeenAt,omitempty"`
 	Agents         []agentStatus `json:"agents"`
 }
 

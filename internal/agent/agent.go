@@ -17,6 +17,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"github.com/Ozdotdotdot/podswitch/internal/aacp"
 	"github.com/Ozdotdotdot/podswitch/internal/audio"
 	"github.com/Ozdotdotdot/podswitch/internal/bluez"
 	"github.com/Ozdotdotdot/podswitch/internal/config"
@@ -39,10 +40,12 @@ const (
 type Agent struct {
 	Host           string
 	CoordinatorURL string // e.g. ws://switchserver:9090/ws/agent
+	ControllerMAC  string
 
-	bt      *bluez.Watcher
-	headset config.Headset
-	media   mediaHandlers
+	bt            *bluez.Watcher
+	headset       config.Headset
+	media         mediaHandlers
+	observeSource func(context.Context, string, func(aacp.SourceEvent)) error
 }
 
 type mediaHandlers struct {
@@ -75,7 +78,14 @@ func New(host, coordinatorURL string) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Agent{Host: host, CoordinatorURL: coordinatorURL, bt: bt, headset: headset, media: defaultMediaHandlers()}, nil
+	controllerMAC, err := bt.ControllerAddress()
+	if err != nil {
+		return nil, err
+	}
+	return &Agent{
+		Host: host, CoordinatorURL: coordinatorURL, ControllerMAC: controllerMAC,
+		bt: bt, headset: headset, media: defaultMediaHandlers(), observeSource: aacp.Observe,
+	}, nil
 }
 
 // Run connects and reconnects forever until ctx is cancelled.
@@ -105,7 +115,7 @@ func (a *Agent) runOnce(ctx context.Context) error {
 	defer conn.CloseNow()
 
 	wire := &connection{conn: conn}
-	if err := wire.write(ctx, proto.Envelope{Type: proto.TypeHello, Host: a.Host, Version: version}); err != nil {
+	if err := wire.write(ctx, proto.Envelope{Type: proto.TypeHello, Host: a.Host, Version: version, ControllerMAC: a.ControllerMAC}); err != nil {
 		return err
 	}
 	log.Printf("agent: connected to coordinator as %q", a.Host)
@@ -130,14 +140,56 @@ func (a *Agent) runOnce(ctx context.Context) error {
 }
 
 func (a *Agent) watchAndReport(ctx context.Context, conn *connection) {
-	if connected, err := a.bt.Connected(); err == nil {
+	var observerCancel context.CancelFunc
+	setConnected := func(connected bool) {
 		a.reportState(ctx, conn, connected)
+		if observerCancel != nil {
+			observerCancel()
+			observerCancel = nil
+		}
+		if connected {
+			observerCtx, cancel := context.WithCancel(ctx)
+			observerCancel = cancel
+			go a.watchSource(observerCtx, conn)
+		}
+	}
+	defer func() {
+		if observerCancel != nil {
+			observerCancel()
+		}
+	}()
+	if connected, err := a.bt.Connected(); err == nil {
+		setConnected(connected)
 	}
 	err := a.bt.Watch(ctx, func(connected bool) {
-		a.reportState(ctx, conn, connected)
+		setConnected(connected)
 	})
 	if err != nil && ctx.Err() == nil {
 		log.Printf("agent: bluez watch ended: %v", err)
+	}
+}
+
+func (a *Agent) watchSource(ctx context.Context, conn *connection) {
+	for ctx.Err() == nil {
+		err := a.observeSource(ctx, a.headset.MAC, func(event aacp.SourceEvent) {
+			source, sourceType := event.MAC, event.Type
+			env := proto.Envelope{
+				Type: proto.TypeState, ActiveSource: &source, SourceType: &sourceType,
+				SourceSeenAt: event.At.UTC().Format(time.RFC3339Nano),
+			}
+			if err := conn.write(ctx, env); err != nil && ctx.Err() == nil {
+				log.Printf("agent: report AACP source: %v", err)
+			}
+		})
+		if ctx.Err() != nil {
+			return
+		}
+		log.Printf("agent: AACP observer ended: %v (retrying in %s)", err, reconnectDelay)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(reconnectDelay):
+		}
 	}
 }
 

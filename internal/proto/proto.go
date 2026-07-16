@@ -29,13 +29,17 @@ type Envelope struct {
 	Type string `json:"type"`
 
 	// hello (agent -> coordinator)
-	Host    string `json:"host,omitempty"`
-	Version string `json:"version,omitempty"`
+	Host          string `json:"host,omitempty"`
+	Version       string `json:"version,omitempty"`
+	ControllerMAC string `json:"controllerMac,omitempty"`
 
 	// state (agent -> coordinator): live BlueZ Connected property for the
 	// AirPods device on this host, and optional local MPD playback state.
-	Connected *bool `json:"connected,omitempty"`
-	Playing   *bool `json:"playing,omitempty"`
+	Connected    *bool   `json:"connected,omitempty"`
+	Playing      *bool   `json:"playing,omitempty"`
+	ActiveSource *string `json:"activeSource,omitempty"`
+	SourceType   *string `json:"sourceType,omitempty"`
+	SourceSeenAt string  `json:"sourceSeenAt,omitempty"`
 
 	// command (coordinator -> agent)
 	ReqID  string `json:"reqId,omitempty"`
