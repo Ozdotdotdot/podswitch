@@ -164,13 +164,14 @@ func hostAction(base, host, action string) (hostActionResult, error) {
 }
 
 type stateResp struct {
-	Holder         string        `json:"holder,omitempty"`
-	ConnectedHosts []string      `json:"connectedHosts"`
-	AudioOwner     string        `json:"audioOwner,omitempty"`
-	ActiveSource   string        `json:"activeSource,omitempty"`
-	SourceType     string        `json:"sourceType,omitempty"`
-	SourceSeenAt   string        `json:"sourceSeenAt,omitempty"`
-	Agents         []agentStatus `json:"agents"`
+	Holder          string        `json:"holder,omitempty"`
+	ConnectedHosts  []string      `json:"connectedHosts"`
+	AudioOwner      string        `json:"audioOwner,omitempty"`
+	ActiveAudioHost string        `json:"activeAudioHost,omitempty"`
+	ActiveSource    string        `json:"activeSource,omitempty"`
+	SourceType      string        `json:"sourceType,omitempty"`
+	SourceSeenAt    string        `json:"sourceSeenAt,omitempty"`
+	Agents          []agentStatus `json:"agents"`
 }
 
 type agentStatus struct {
@@ -221,7 +222,14 @@ func printStatus(state stateResp) {
 			note = "  (connected)"
 		}
 		if a.Host == state.AudioOwner {
-			note = "  (audio owner)"
+			sourceType := state.SourceType
+			if sourceType == "none" {
+				sourceType = "idle"
+			}
+			if sourceType == "" {
+				sourceType = "unknown"
+			}
+			note = fmt.Sprintf("  (audio owner · %s)", sourceType)
 		}
 		age := ""
 		if seen, err := time.Parse(time.RFC3339, a.SeenAt); err == nil {

@@ -57,13 +57,13 @@ func TestCurrentStateMapsActiveSourceToConnectedAgent(t *testing.T) {
 	c.sourceSeenAt = time.Now()
 
 	state := c.currentState()
-	if state.AudioOwner != "pi" || state.ActiveSource != "b8:27:eb:ab:de:77" || state.SourceType != "media" {
+	if state.AudioOwner != "pi" || state.ActiveAudioHost != "pi" || state.ActiveSource != "b8:27:eb:ab:de:77" || state.SourceType != "media" {
 		t.Fatalf("unexpected source mapping: %#v", state)
 	}
 
 	c.sourceType = "none"
-	if state := c.currentState(); state.AudioOwner != "" {
-		t.Fatalf("none source retained an owner: %#v", state)
+	if state := c.currentState(); state.AudioOwner != "pi" || state.ActiveAudioHost != "" {
+		t.Fatalf("idle source did not retain route ownership: %#v", state)
 	}
 }
 

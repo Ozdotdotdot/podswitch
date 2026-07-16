@@ -103,13 +103,14 @@ func (c *Coordinator) handleMedia(w http.ResponseWriter, r *http.Request) {
 }
 
 type stateResp struct {
-	Holder         string        `json:"holder,omitempty"` // legacy: populated only for one connected host
-	ConnectedHosts []string      `json:"connectedHosts"`
-	AudioOwner     string        `json:"audioOwner,omitempty"` // empty until ownership is directly observed
-	ActiveSource   string        `json:"activeSource,omitempty"`
-	SourceType     string        `json:"sourceType,omitempty"`
-	SourceSeenAt   string        `json:"sourceSeenAt,omitempty"`
-	Agents         []agentStatus `json:"agents"`
+	Holder          string        `json:"holder,omitempty"` // legacy: populated only for one connected host
+	ConnectedHosts  []string      `json:"connectedHosts"`
+	AudioOwner      string        `json:"audioOwner,omitempty"` // empty until ownership is directly observed
+	ActiveAudioHost string        `json:"activeAudioHost,omitempty"`
+	ActiveSource    string        `json:"activeSource,omitempty"`
+	SourceType      string        `json:"sourceType,omitempty"`
+	SourceSeenAt    string        `json:"sourceSeenAt,omitempty"`
+	Agents          []agentStatus `json:"agents"`
 }
 
 type agentStatus struct {
@@ -147,12 +148,13 @@ func (c *Coordinator) currentState() stateResp {
 			resp.ConnectedHosts = append(resp.ConnectedHosts, host)
 		}
 	}
-	if resp.SourceType == "media" || resp.SourceType == "call" {
-		for host, a := range c.agents {
-			if a.connected && strings.EqualFold(a.controllerMAC, resp.ActiveSource) {
-				resp.AudioOwner = host
-				break
+	for host, a := range c.agents {
+		if resp.ActiveSource != "" && a.controllerMAC != "" && a.connected && strings.EqualFold(a.controllerMAC, resp.ActiveSource) {
+			resp.AudioOwner = host
+			if resp.SourceType == "media" || resp.SourceType == "call" {
+				resp.ActiveAudioHost = host
 			}
+			break
 		}
 	}
 	sort.Slice(resp.Agents, func(i, j int) bool { return resp.Agents[i].Host < resp.Agents[j].Host })

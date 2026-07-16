@@ -54,6 +54,7 @@ func TestHostListDistinguishesConnectionFromAudioOwnership(t *testing.T) {
 	m := newModel("http://coordinator")
 	updated, _ := m.Update(stateMsg{
 		AudioOwner: "pi",
+		SourceType: "none",
 		Agents: []agentStatus{
 			{Host: "pi", Online: true, Connected: true},
 			{Host: "workstation", Online: true, Connected: true},
@@ -61,7 +62,7 @@ func TestHostListDistinguishesConnectionFromAudioOwnership(t *testing.T) {
 	})
 	m = updated.(model)
 	rendered := m.hostList()
-	if !strings.Contains(rendered, "audio owner") || !strings.Contains(rendered, "connected") {
+	if !strings.Contains(rendered, "audio owner · idle") || !strings.Contains(rendered, "connected") {
 		t.Fatalf("ownership and connection were not distinguished:\n%s", rendered)
 	}
 }
