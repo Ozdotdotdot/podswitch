@@ -1,7 +1,7 @@
 // Package coordinator runs on the always-on switch server. Agents dial in
 // over a persistent WebSocket; the coordinator keeps a cache of who's
-// online and who currently holds the AirPods, and orchestrates handoffs
-// (evict current holder, connect target) on grab requests.
+// online and connected to the AirPods, and orchestrates handoffs (evict
+// connected peers, connect target) on grab requests.
 //
 // The registry is a cache for widgets, NOT authoritative — Grab re-verifies
 // against each agent's live state before acting, and liveness is the
@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -97,8 +98,10 @@ func (c *Coordinator) handleMedia(w http.ResponseWriter, r *http.Request) {
 }
 
 type stateResp struct {
-	Holder string        `json:"holder,omitempty"` // best-known current holder, "" if none known online
-	Agents []agentStatus `json:"agents"`
+	Holder         string        `json:"holder,omitempty"` // legacy: populated only for one connected host
+	ConnectedHosts []string      `json:"connectedHosts"`
+	AudioOwner     string        `json:"audioOwner,omitempty"` // empty until ownership is directly observed
+	Agents         []agentStatus `json:"agents"`
 }
 
 type agentStatus struct {
@@ -118,7 +121,7 @@ func (c *Coordinator) currentState() stateResp {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	resp := stateResp{}
+	resp := stateResp{ConnectedHosts: []string{}}
 	for host, a := range c.agents {
 		resp.Agents = append(resp.Agents, agentStatus{
 			Host:      host,
@@ -128,8 +131,13 @@ func (c *Coordinator) currentState() stateResp {
 			SeenAt:    a.seenAt.Format(time.RFC3339),
 		})
 		if a.connected {
-			resp.Holder = host
+			resp.ConnectedHosts = append(resp.ConnectedHosts, host)
 		}
+	}
+	sort.Slice(resp.Agents, func(i, j int) bool { return resp.Agents[i].Host < resp.Agents[j].Host })
+	sort.Strings(resp.ConnectedHosts)
+	if len(resp.ConnectedHosts) == 1 {
+		resp.Holder = resp.ConnectedHosts[0]
 	}
 	return resp
 }

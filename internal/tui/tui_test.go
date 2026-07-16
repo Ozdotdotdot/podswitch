@@ -32,7 +32,7 @@ func TestStateSelectionAndGrab(t *testing.T) {
 		{Host: "laptop", Online: true},
 	}})
 	m = updated.(model)
-	if m.agents[0].Host != "laptop" || !strings.Contains(m.hostList(), "holding") {
+	if m.agents[0].Host != "laptop" || !strings.Contains(m.hostList(), "connected") {
 		t.Fatalf("state was not sorted/rendered correctly: %#v\n%s", m.agents, m.hostList())
 	}
 	updated, command := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -47,6 +47,22 @@ func TestStateSelectionAndGrab(t *testing.T) {
 	}
 	if requestedHost != "laptop" {
 		t.Fatalf("grab targeted %q, want laptop", requestedHost)
+	}
+}
+
+func TestHostListDistinguishesConnectionFromAudioOwnership(t *testing.T) {
+	m := newModel("http://coordinator")
+	updated, _ := m.Update(stateMsg{
+		AudioOwner: "pi",
+		Agents: []agentStatus{
+			{Host: "pi", Online: true, Connected: true},
+			{Host: "workstation", Online: true, Connected: true},
+		},
+	})
+	m = updated.(model)
+	rendered := m.hostList()
+	if !strings.Contains(rendered, "audio owner") || !strings.Contains(rendered, "connected") {
+		t.Fatalf("ownership and connection were not distinguished:\n%s", rendered)
 	}
 }
 

@@ -1,5 +1,5 @@
 // Command podswitch is the CLI for talking to a running podswitchd
-// coordinator: "podswitch status" to see who's holding the AirPods,
+// coordinator: "podswitch status" to see who's connected to the AirPods,
 // "podswitch here" to grab them, "podswitch config" to pin a coordinator
 // address. Bare "podswitch" (no subcommand) launches an interactive TUI.
 package main
@@ -164,8 +164,10 @@ func hostAction(base, host, action string) (hostActionResult, error) {
 }
 
 type stateResp struct {
-	Holder string        `json:"holder,omitempty"`
-	Agents []agentStatus `json:"agents"`
+	Holder         string        `json:"holder,omitempty"`
+	ConnectedHosts []string      `json:"connectedHosts"`
+	AudioOwner     string        `json:"audioOwner,omitempty"`
+	Agents         []agentStatus `json:"agents"`
 }
 
 type agentStatus struct {
@@ -213,7 +215,10 @@ func printStatus(state stateResp) {
 		note := ""
 		if a.Connected {
 			marker = "●"
-			note = "  (holding the AirPods)"
+			note = "  (connected)"
+		}
+		if a.Host == state.AudioOwner {
+			note = "  (audio owner)"
 		}
 		age := ""
 		if seen, err := time.Parse(time.RFC3339, a.SeenAt); err == nil {

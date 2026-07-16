@@ -40,8 +40,10 @@ var (
 )
 
 type stateResp struct {
-	Holder string        `json:"holder,omitempty"`
-	Agents []agentStatus `json:"agents"`
+	Holder         string        `json:"holder,omitempty"`
+	ConnectedHosts []string      `json:"connectedHosts"`
+	AudioOwner     string        `json:"audioOwner,omitempty"`
+	Agents         []agentStatus `json:"agents"`
 }
 
 type agentStatus struct {
@@ -86,6 +88,7 @@ type model struct {
 	width, height int
 	selected      int
 	agents        []agentStatus
+	audioOwner    string
 	grabbing      bool
 	grabTarget    string
 	grabConnected bool
@@ -120,6 +123,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			selectedHost = m.agents[m.selected].Host
 		}
 		m.agents = append([]agentStatus(nil), msg.Agents...)
+		m.audioOwner = msg.AudioOwner
 		sort.Slice(m.agents, func(i, j int) bool { return m.agents[i].Host < m.agents[j].Host })
 		if len(m.agents) == 0 {
 			m.selected = 0
@@ -324,7 +328,10 @@ func (m model) hostList() string {
 		}
 		if agent.Connected {
 			marker = lipgloss.NewStyle().Foreground(success).Render("●")
-			status = lipgloss.NewStyle().Foreground(success).Render("holding")
+			status = lipgloss.NewStyle().Foreground(success).Render("connected")
+		}
+		if agent.Host == m.audioOwner {
+			status = lipgloss.NewStyle().Foreground(success).Bold(true).Render("audio owner")
 		}
 		prefix := "  "
 		name := lipgloss.NewStyle().Foreground(text).Render(agent.Host)

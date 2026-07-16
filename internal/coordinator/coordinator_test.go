@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,33 @@ import (
 
 	"github.com/Ozdotdotdot/podswitch/internal/proto"
 )
+
+func TestCurrentStateRepresentsMultipointWithoutGuessingOwner(t *testing.T) {
+	c := New()
+	c.agents["workstation"] = &agentConn{host: "workstation", connected: true}
+	c.agents["pi"] = &agentConn{host: "pi", connected: true}
+
+	state := c.currentState()
+	if state.Holder != "" || state.AudioOwner != "" {
+		t.Fatalf("ambiguous ownership was guessed: %#v", state)
+	}
+	if want := []string{"pi", "workstation"}; !reflect.DeepEqual(state.ConnectedHosts, want) {
+		t.Fatalf("connected hosts = %v, want %v", state.ConnectedHosts, want)
+	}
+	if state.Agents[0].Host != "pi" || state.Agents[1].Host != "workstation" {
+		t.Fatalf("agents are not deterministic: %#v", state.Agents)
+	}
+}
+
+func TestCurrentStateRetainsLegacyHolderForSingleConnection(t *testing.T) {
+	c := New()
+	c.agents["pi"] = &agentConn{host: "pi", connected: true}
+
+	state := c.currentState()
+	if state.Holder != "pi" {
+		t.Fatalf("holder = %q, want pi", state.Holder)
+	}
+}
 
 func TestToggleForwardsCommandAndReturnsPlaybackState(t *testing.T) {
 	c := New()
