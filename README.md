@@ -81,7 +81,7 @@ Build the two uploadable release archives and checksums:
 make dist
 ```
 
-Upload `dist/podswitch_linux_amd64.tar.gz`, `dist/podswitch_linux_arm64.tar.gz`, and `dist/checksums.txt` to a GitHub Release. Also upload `deploy/install.sh` as `install.sh`. Archive names are intentionally stable so the install command can use GitHub's `latest/download` URL.
+Upload every file produced directly under `dist/` to a GitHub Release: the two archives, `checksums.txt`, and `install.sh`. Archive and installer names are intentionally stable so the install command can use GitHub's `latest/download` URL.
 
 ## Architecture
 

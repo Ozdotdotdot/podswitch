@@ -25,12 +25,13 @@ amd64:
 dist:
 	rm -rf $(DIST_DIR)
 	mkdir -p $(DIST_DIR)/podswitch_linux_amd64 $(DIST_DIR)/podswitch_linux_arm64
+	cp deploy/install.sh $(DIST_DIR)/install.sh
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o $(DIST_DIR)/podswitch_linux_amd64/podswitchd ./cmd/podswitchd
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o $(DIST_DIR)/podswitch_linux_amd64/podswitch ./cmd/podswitch
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o $(DIST_DIR)/podswitch_linux_arm64/podswitchd ./cmd/podswitchd
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o $(DIST_DIR)/podswitch_linux_arm64/podswitch ./cmd/podswitch
-	cp deploy/install.sh $(DIST_DIR)/podswitch_linux_amd64/install.sh
-	cp deploy/install.sh $(DIST_DIR)/podswitch_linux_arm64/install.sh
+	cp $(DIST_DIR)/install.sh $(DIST_DIR)/podswitch_linux_amd64/install.sh
+	cp $(DIST_DIR)/install.sh $(DIST_DIR)/podswitch_linux_arm64/install.sh
 	tar -C $(DIST_DIR) -czf $(DIST_DIR)/podswitch_linux_amd64.tar.gz podswitch_linux_amd64
 	tar -C $(DIST_DIR) -czf $(DIST_DIR)/podswitch_linux_arm64.tar.gz podswitch_linux_arm64
 	rm -rf $(DIST_DIR)/podswitch_linux_amd64 $(DIST_DIR)/podswitch_linux_arm64
